@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Resend } from 'resend';
 import { SendEmailDto } from './dto/email.dto';
+import { env } from 'src/core/config/env.config';
 
 @Injectable()
 export class EmailService {
@@ -8,7 +9,7 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
 
   constructor() {
-    this.resend = new Resend(process.env.RESEND_API_KEY);
+    this.resend = new Resend(env.RESEND_API_KEY);
   }
 
   async sendEmail(dto: SendEmailDto) {
@@ -17,7 +18,7 @@ export class EmailService {
     this.logger.log(`Sending email to ${to}`);
 
     const { data, error } = await this.resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+      from: env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
       to,
       subject,
       html: `<p>${message}</p>`,
