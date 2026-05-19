@@ -6,7 +6,6 @@ import { env } from 'src/core/config/env.config';
 @Injectable()
 export class EmailService {
   private readonly resend: Resend;
-  private readonly logger = new Logger(EmailService.name);
 
   constructor() {
     this.resend = new Resend(env.RESEND_API_KEY);
@@ -14,8 +13,6 @@ export class EmailService {
 
   async sendEmail(dto: SendEmailDto) {
     const { to, subject, message } = dto;
-
-    this.logger.log(`Sending email to ${to}`);
 
     const { data, error } = await this.resend.emails.send({
       from: env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
@@ -25,11 +22,9 @@ export class EmailService {
     });
 
     if (error) {
-      this.logger.error(`Failed to send email: ${error.message}`);
       throw new Error(`Failed to send email: ${error.message}`);
     }
 
-    this.logger.log(`Email sent successfully. ID: ${data?.id}`);
     return { id: data?.id, message: 'Email sent successfully' };
   }
 }

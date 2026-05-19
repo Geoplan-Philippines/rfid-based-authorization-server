@@ -58,7 +58,7 @@ Healthy response: `{ "status": "ok", ... }`.
 ## Environment
 
 See `.env.example`:
-- `NODE_ENV`, `APP_URL`, `PORT`
+- `NODE_ENV`, `PORT`
 - `DATABASE_URL` — PostgreSQL connection string
 - `JWT_SECRET` — secret for signing JWT tokens
 - `JWT_EXPIRES_IN` — token expiry (e.g. `7d`)

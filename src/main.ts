@@ -18,13 +18,6 @@ async function bootstrap() {
 
   app.use(helmet());
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-    })
-  );
-
   app.enableCors({
     origin: env.CORS_ALLOWED_ORIGINS,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],

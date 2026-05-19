@@ -16,6 +16,15 @@ model User {
   lastName                      String?                   @map("last_name")
   email                         String                    @unique
   password                      String
+  role                          RoleEnum                  @default(ADMIN)
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
   
   @@map("users")
+}
+
+enum RoleEnum {
+  ADMIN
+  SUPER_ADMIN
 }
