@@ -6,7 +6,6 @@ import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { LoginDTO } from './dto/login.dto';
 import type { AuthResult, LoginUser } from './types/auth.types';
-import type { SafeUser } from '../users/types/users.types';
 
 @Injectable()
 export class AuthService {
@@ -17,13 +16,8 @@ export class AuthService {
 
   async validateUser(loginDto: LoginDTO) {
     const user = await this.usersService.findUserByEmail(loginDto.email);
-    if (!user) {
-      throw new UnauthorizedException('No account found for this email');
-    }
-
-    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Incorrect password');
+    if (!user || !(await bcrypt.compare(loginDto.password, user.password))) {
+      throw new UnauthorizedException('Invalid email or password');
     }
 
     return user;
@@ -33,6 +27,7 @@ export class AuthService {
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
       email: user.email,
+      role: user.role,
     });
 
     return {

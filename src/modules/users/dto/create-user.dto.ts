@@ -1,5 +1,5 @@
-import { IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
-import { RoleEnum } from '@prisma/client';
+import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class CreateUserDTO {
   @IsOptional()
@@ -10,13 +10,11 @@ export class CreateUserDTO {
   @IsString()
   lastName?: string;
 
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
   @IsEmail()
   email!: string;
 
   @IsString()
   @MinLength(8)
   password!: string;
-
-  @IsEnum(RoleEnum)
-  role!: RoleEnum;
 }
