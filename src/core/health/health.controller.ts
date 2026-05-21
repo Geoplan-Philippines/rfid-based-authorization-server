@@ -10,7 +10,7 @@ export class HealthController {
     private readonly prisma: PrismaService,
   ) {}
 
-  @Get('')
+  @Get()
   @HealthCheck()
   liveness() {
     return this.health.check([
