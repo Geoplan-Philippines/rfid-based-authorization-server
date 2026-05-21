@@ -7,6 +7,10 @@ import { UsersService } from '../users/users.service';
 import { LoginDTO } from './dto/login.dto';
 import type { AuthResult, LoginUser } from './types/auth.types';
 
+// Pre-computed bcrypt hash of a random string. Used to keep timing constant
+// when the user lookup misses, so attackers can't enumerate accounts.
+const DUMMY_HASH = '$2b$10$CwTycUXWue0Thq9StjUM0uJ8.D6Z/3p1zVcr7e9LpO5z9C5jM1qWG';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -14,13 +18,17 @@ export class AuthService {
     private readonly jwtService: JwtService
   ) {}
 
-  async validateUser(loginDto: LoginDTO) {
+  async validateUser(loginDto: LoginDTO): Promise<LoginUser> {
     const user = await this.usersService.findUserByEmail(loginDto.email);
-    if (!user || !(await bcrypt.compare(loginDto.password, user.password))) {
+    const isValid = await bcrypt.compare(loginDto.password, user?.password ?? DUMMY_HASH);
+
+    if (!user || !isValid) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    return user;
+    const { password, ...safeUser } = user;
+
+    return safeUser;
   }
 
   async login(user: LoginUser): Promise<AuthResult> {
