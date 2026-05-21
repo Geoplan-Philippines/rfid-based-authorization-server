@@ -16,6 +16,175 @@ model User {
   lastName                      String?                   @map("last_name")
   email                         String                    @unique
   password                      String
+  role                          Role                      @default(ADMIN)
+  isArchived                    Boolean                   @default(false) @map("is_archived")
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
   
   @@map("users")
+}
+
+model Driver {
+  id                            String                    @id @default(uuid())
+  firstName                     String                    @map("first_name")
+  lastName                      String                    @map("last_name")
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  assignedTrucks                Truck[]
+  gateEvents                    GateEvent[]
+
+  @@map("drivers")
+}
+
+model Truck {
+  id                            String                    @id @default(uuid())
+  plateNumber                   String                    @unique @map("plate_number")
+  model                         String
+  isArchived                    Boolean                   @default(false) @map("is_archived")
+
+  assignedDriverId              String?                   @map("assigned_driver_id")
+  assignedDriver                Driver?                   @relation(fields: [assignedDriverId], references: [id])
+  
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  rfidTag                       RFIDTag?
+  gateEvents                    GateEvent[]
+  
+  @@map("trucks")
+}
+
+model RFIDTag {
+  id                            String                    @id @default(uuid())
+  epcId                         String                    @unique @map("epc_id")
+  status                        RFIDTagStatus             @default(ACTIVE)
+
+  assignedTruckId               String?                   @unique @map("assigned_truck_id")
+  assignedTruck                 Truck?                    @relation(fields: [assignedTruckId], references: [id])
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  gateEvents                    GateEvent[]
+
+  @@map("rfid_tags")
+}
+
+model EventVerification {
+  id                            String                    @id @default(uuid())
+  verifiedAt                    DateTime                  @map("verified_at")
+  rfidMatched                   Boolean                   @map("rfid_matched")
+  faceMatched                   Boolean?                  @map("face_matched")
+  plateMatched                  Boolean?                  @map("plate_matched")
+  faceConfidence                Float?                    @map("face_confidence")
+  plateConfidence               Float?                    @map("plate_confidence")
+
+  gateEventId                   String                    @unique @map("gate_event_id")
+  gateEvent                     GateEvent                 @relation(fields: [gateEventId], references: [id])
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  @@map("event_verifications")
+}
+
+model GateEvent {
+  id                            String                    @id @default(uuid())
+  eventCode                     String                    @map("event_code")
+  occurredAt                    DateTime                  @map("occurred_at")
+  result                        GateEventResult
+  plateNumberRead               String?                   @map("plate_number_read")
+
+  rfidTagId                     String?                   @map("rfid_tag_id")
+  rfidTag                       RFIDTag?                  @relation(fields: [rfidTagId], references: [id])
+
+  truckId                       String?                   @map("truck_id")
+  truck                         Truck?                    @relation(fields: [truckId], references: [id])
+
+  driverId                      String?                   @map("driver_id")
+  driver                        Driver?                   @relation(fields: [driverId], references: [id])
+  
+  verification                  EventVerification?
+  snapshots                     GateSnapshot[]
+  timeline                      GateTimelineEvent[]
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+  
+  @@index([occurredAt])
+  @@index([result])
+  @@index([truckId])
+  @@index([driverId])
+  @@index([rfidTagId])
+  @@index([plateNumberRead])
+  @@map("gate_events")
+}
+
+model GateSnapshot { 
+  id                            String                    @id @default(uuid())
+  imageUrl                      String                    @map("image_url")
+  type                          SnapshotType
+
+  gateEventId                   String                    @map("gate_event_id")
+  gateEvent                     GateEvent                 @relation(fields: [gateEventId], references: [id])
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  @@map("gate_snapshots")
+}
+
+model GateTimelineEvent {
+  id                            String                    @id @default(uuid())
+  type                          TimelineEventType
+  message                       String?
+  metadata                      Json?
+  occurredAt                    DateTime                  @default(now()) @map("occurred_at")
+
+  gateEventId                   String                    @map("gate_event_id")
+  gateEvent                     GateEvent                 @relation(fields: [gateEventId], references: [id])
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  @@index([gateEventId])
+  @@map("gate_timeline_events")
+}
+
+enum Role {
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum RFIDTagStatus {
+  ACTIVE
+  INACTIVE
+  LOST
+  BLOCKED
+}
+
+enum GateEventResult {
+  VERIFIED
+  UNKNOWN_TAG
+  FACE_MISMATCH
+  PLATE_MISMATCH
+  DENIED
+}
+
+enum SnapshotType {
+  FACE
+  PLATE
+  WIDE
+}
+
+enum TimelineEventType {
+  PLATE_CAPTURED
+  FACE_CAPTURED
+  FACE_MATCHED
+  RFID_SCANNED
+  TAG_VALIDATED
+  BARRIER_OPENED
 }
