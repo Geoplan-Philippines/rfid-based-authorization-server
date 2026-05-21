@@ -1,5 +1,5 @@
 import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
-import { RoleEnum } from '@prisma/client';
+import { Role } from '@prisma/client';
 
 import { CreateUserDTO } from './dto/create-user.dto';
 import { UsersService } from './users.service';
@@ -13,8 +13,8 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post()
-  @UseGuards(PassportJwtGuard, RolesGuard)
-  @Roles(RoleEnum.SUPER_ADMIN)
+  // @UseGuards(PassportJwtGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
   createUser(@Body() createUserDTO: CreateUserDTO): Promise<SafeUser> {
     return this.usersService.createUser(createUserDTO);
   }

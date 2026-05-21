@@ -1,9 +1,9 @@
-import type { RoleEnum, User } from '@prisma/client';
+import type { Role, User } from '@prisma/client';
 
 export type JwtPayload = {
   sub: string;
   email: string;
-  role: RoleEnum;
+  role: Role;
 };
 
 export type AuthenticatedUser = Pick<User, 'id' | 'email' | 'role'>;

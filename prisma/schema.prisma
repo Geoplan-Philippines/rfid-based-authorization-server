@@ -93,7 +93,7 @@ model EventVerification {
 
 model GateEvent {
   id                            String                    @id @default(uuid())
-  eventCode                     String                    @map("event_code")
+  eventCode                     String                    @unique @map("event_code")
   occurredAt                    DateTime                  @map("occurred_at")
   result                        GateEventResult
   plateNumberRead               String?                   @map("plate_number_read")
@@ -114,6 +114,7 @@ model GateEvent {
   createdAt                     DateTime                  @default(now()) @map("created_at")
   updatedAt                     DateTime                  @updatedAt @map("updated_at")
   
+  @@index([eventCode])
   @@index([occurredAt])
   @@index([result])
   @@index([truckId])
@@ -123,7 +124,7 @@ model GateEvent {
   @@map("gate_events")
 }
 
-model GateSnapshot { 
+model GateSnapshot {
   id                            String                    @id @default(uuid())
   imageUrl                      String                    @map("image_url")
   type                          SnapshotType
@@ -142,7 +143,7 @@ model GateTimelineEvent {
   type                          TimelineEventType
   message                       String?
   metadata                      Json?
-  occurredAt                    DateTime                  @default(now()) @map("occurred_at")
+  occurredAt                    DateTime                  @map("occurred_at")
 
   gateEventId                   String                    @map("gate_event_id")
   gateEvent                     GateEvent                 @relation(fields: [gateEventId], references: [id])
@@ -172,6 +173,7 @@ enum GateEventResult {
   FACE_MISMATCH
   PLATE_MISMATCH
   DENIED
+  MANUAL_OVERRIDE
 }
 
 enum SnapshotType {
