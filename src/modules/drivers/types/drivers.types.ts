@@ -1,6 +1,6 @@
-import { Driver } from '@prisma/client';
+import { Driver, Truck, GateEvent } from '@prisma/client';
 
 export type DriverWithRelations = Driver & {
-  assignedTrucks?: unknown[];
-  gateEvents?: unknown[];
+  assignedTrucks?: Truck[];
+  gateEvents?: GateEvent[];
 };

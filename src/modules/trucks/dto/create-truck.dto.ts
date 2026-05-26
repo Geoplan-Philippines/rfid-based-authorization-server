@@ -1,4 +1,4 @@
-import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsUUID, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateTruckDTO {
   @IsString()
@@ -10,10 +10,7 @@ export class CreateTruckDTO {
   model: string;
 
   @IsOptional()
-  @IsBoolean()
-  isArchived?: boolean;
-
-  @IsOptional()
   @IsString()
+  @IsUUID()
   assignedDriverId?: string;
 }

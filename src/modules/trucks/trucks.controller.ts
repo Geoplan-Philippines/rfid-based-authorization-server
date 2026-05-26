@@ -8,6 +8,7 @@ import { TrucksService } from './trucks.service';
 import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
 import { PassportJwtGuard } from '../auth/guards/passport-jwt.guard';
 
+// TODO: Apply RolesGuard and @Roles() decorator to all routes
 @Controller('trucks')
 export class TrucksController {
   constructor(private readonly trucksService: TrucksService) {}

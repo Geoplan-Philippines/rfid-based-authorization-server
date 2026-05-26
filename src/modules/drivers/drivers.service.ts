@@ -3,7 +3,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateDriverDTO } from './dto/create-driver.dto';
 import { GetAllDriversQueryDTO } from './dto/get-all-drivers-query.dto';
-import { Driver } from '@prisma/client';
+import { Driver, Prisma } from '@prisma/client';
 import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
 
 @Injectable()
@@ -11,21 +11,19 @@ export class DriversService {
   constructor(private readonly prisma: PrismaService) {}
 
   async createDriver(createDriverDTO: CreateDriverDTO): Promise<Driver> {
-    const existing = await this.prisma.driver.findFirst({
-      where: {
-        firstName: createDriverDTO.firstName.trim(),
-        lastName: createDriverDTO.lastName.trim(),
-      },
-    });
-
-    if (existing) throw new ConflictException('Driver with the same name already exists');
-
-    return this.prisma.driver.create({
-      data: {
-        firstName: createDriverDTO.firstName.trim(),
-        lastName: createDriverDTO.lastName.trim(),
-      },
-    });
+    try {
+      return await this.prisma.driver.create({
+        data: {
+          firstName: this.toTitleCase(createDriverDTO.firstName),
+          lastName: this.toTitleCase(createDriverDTO.lastName),
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('Driver with the same name already exists');
+      }
+      throw error;
+    }
   }
 
   async getAllDrivers(query: GetAllDriversQueryDTO): Promise<PaginatedResponse<Driver>> {
@@ -53,5 +51,12 @@ export class DriversService {
 
   async findDriverById(id: string): Promise<Driver | null> {
     return this.prisma.driver.findUnique({ where: { id } });
+  }
+  
+  private toTitleCase(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
   }
 }

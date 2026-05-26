@@ -37,6 +37,7 @@ model Driver {
   gateEvents                    GateEvent[]
 
   @@map("drivers")
+  @@unique([firstName, lastName])
 }
 
 model Truck {

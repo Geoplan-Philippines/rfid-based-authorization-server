@@ -8,6 +8,7 @@ import { DriversService } from './drivers.service';
 import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
 import { PassportJwtGuard } from '../auth/guards/passport-jwt.guard';
 
+// TODO: Apply RolesGuard and @Roles() decorator to all routes
 @Controller('drivers')
 export class DriversController {
   constructor(private readonly driversService: DriversService) {}
