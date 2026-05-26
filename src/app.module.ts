@@ -13,6 +13,8 @@ import { PrismaModule } from './core/database/prisma.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { EmailModule } from './modules/email/email.module';
+import { DriversModule } from './modules/drivers/drivers.module';
+import { TrucksModule } from './modules/trucks/trucks.module';
 
 @Module({
   imports: [
@@ -22,6 +24,8 @@ import { EmailModule } from './modules/email/email.module';
     UsersModule,
     AuthModule,
     EmailModule,
+    DriversModule,
+    TrucksModule,
   ],
   controllers: [AppController],
   providers: [
