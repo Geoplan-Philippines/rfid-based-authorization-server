@@ -1,7 +1,6 @@
 import { Truck, Driver, RFIDTag, GateEvent, Prisma } from '@prisma/client';
 
 export type TruckWithRelations = Truck & {
-  assignedDriver?: Driver;
   rfidTag?: RFIDTag;
   gateEvents?: GateEvent[];
 };

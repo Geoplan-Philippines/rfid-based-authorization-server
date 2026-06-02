@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 
 import { CreateAssignmentDTO } from './dto/create-assignment.dto';
 import { GetAllAssignmentsQueryDTO } from './dto/get-all-assignments-query.dto';
@@ -15,17 +15,29 @@ export class TruckDriverAssignmentController {
   constructor(private readonly truckDriverAssignmentService: TruckDriverAssignmentService) {}
 
   @Post()
-  createAssignment(@Body() createAssignmentDTO: CreateAssignmentDTO): Promise<TruckDriverAssignmentWithRelations> {
+  createAssignment(
+    @Body() createAssignmentDTO: CreateAssignmentDTO,
+  ): Promise<TruckDriverAssignmentWithRelations> {
     return this.truckDriverAssignmentService.createAssignment(createAssignmentDTO);
   }
 
   @Get()
-  getAllAssignments(@Query() query: GetAllAssignmentsQueryDTO): Promise<PaginatedResponse<TruckDriverAssignmentWithRelations>> {
+  getAllAssignments(
+    @Query() query: GetAllAssignmentsQueryDTO,
+  ): Promise<PaginatedResponse<TruckDriverAssignmentWithRelations>> {
     return this.truckDriverAssignmentService.getAllAssignments(query);
   }
 
-  @Patch()
-  updateAssignmentStatus(@Body() updateAssignmentStatusDTO: UpdateAssignmentStatusDTO,): Promise<TruckDriverAssignmentWithRelations> {
-    return this.truckDriverAssignmentService.updateAssignmentStatus(updateAssignmentStatusDTO);
+  @Patch(':truckId/:driverId')
+  updateAssignmentStatus(
+    @Param('truckId', ParseUUIDPipe) truckId: string,
+    @Param('driverId', ParseUUIDPipe) driverId: string,
+    @Body() updateAssignmentStatusDTO: UpdateAssignmentStatusDTO,
+  ): Promise<TruckDriverAssignmentWithRelations> {
+    return this.truckDriverAssignmentService.updateAssignmentStatus(
+      truckId,
+      driverId,
+      updateAssignmentStatusDTO,
+    );
   }
 }

@@ -56,13 +56,12 @@ export class TruckDriverAssignmentService {
     };
   }
 
-  async updateAssignmentStatus(updateAssignmentStatusDTO: UpdateAssignmentStatusDTO): Promise<TruckDriverAssignmentWithRelations> {
-    const { truckId, driverId, status } = updateAssignmentStatusDTO;
+  async updateAssignmentStatus(truckId: string, driverId: string, updateAssignmentStatusDTO: UpdateAssignmentStatusDTO): Promise<TruckDriverAssignmentWithRelations> {
     await this.ensureAssignmentExists(truckId, driverId);
 
     return this.prisma.truckDriverAssignment.update({
       where: { truckId_driverId: { truckId, driverId } },
-      data: { status },
+      data: { status: updateAssignmentStatusDTO.status },
       include: ASSIGNMENT_INCLUDE,
     });
   }
