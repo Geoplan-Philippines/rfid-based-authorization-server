@@ -16,6 +16,7 @@ import { EmailModule } from './modules/email/email.module';
 import { DriversModule } from './modules/drivers/drivers.module';
 import { TrucksModule } from './modules/trucks/trucks.module';
 import { TruckDriverAssignmentModule } from './modules/truck-driver-assignment/truck-driver-assignment.module';
+import { PlateRecognitionModule } from './modules/plate-recognition/plate-recognition.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { TruckDriverAssignmentModule } from './modules/truck-driver-assignment/t
     DriversModule,
     TruckDriverAssignmentModule,
     TrucksModule,
+    PlateRecognitionModule,
   ],
   controllers: [AppController],
   providers: [
