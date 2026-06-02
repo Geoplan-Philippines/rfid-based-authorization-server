@@ -5,6 +5,7 @@ import { Truck } from '@prisma/client';
 import { GetAllTrucksQueryDTO } from './dto/get-all-trucks-query.dto';
 import { CreateTruckDTO } from './dto/create-truck.dto';
 import { TrucksService } from './trucks.service';
+import { TruckWithDrivers } from './types/trucks.types';
 import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
 import { PassportJwtGuard } from '../auth/guards/passport-jwt.guard';
 
@@ -23,6 +24,12 @@ export class TrucksController {
   @UseGuards(PassportJwtGuard)
   getAllTrucks(@Query() query: GetAllTrucksQueryDTO): Promise<PaginatedResponse<Truck>> {
     return this.trucksService.getAllTrucks(query);
+  }
+
+  @Get('with-drivers')
+  @UseGuards(PassportJwtGuard)
+  getAllTrucksWithDrivers(): Promise<TruckWithDrivers[]> {
+    return this.trucksService.getAllTrucksWithDrivers();
   }
 
   @Get(':id')

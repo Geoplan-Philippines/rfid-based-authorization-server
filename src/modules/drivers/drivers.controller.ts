@@ -5,6 +5,7 @@ import { Driver } from '@prisma/client';
 import { CreateDriverDTO } from './dto/create-driver.dto';
 import { GetAllDriversQueryDTO } from './dto/get-all-drivers-query.dto';
 import { DriversService } from './drivers.service';
+import { DriverWithRelations } from './types/drivers.types';
 import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
 import { PassportJwtGuard } from '../auth/guards/passport-jwt.guard';
 
@@ -23,6 +24,12 @@ export class DriversController {
   @UseGuards(PassportJwtGuard)
   getAllDrivers(@Query() query: GetAllDriversQueryDTO): Promise<PaginatedResponse<Driver>> {
     return this.driversService.getAllDrivers(query);
+  }
+
+  @Get('with-trucks')
+  @UseGuards(PassportJwtGuard)
+  getAllDriversWithTrucks(): Promise<DriverWithRelations[]> {
+    return this.driversService.getAllDriversWithTrucks();
   }
 
   @Get(':id')
