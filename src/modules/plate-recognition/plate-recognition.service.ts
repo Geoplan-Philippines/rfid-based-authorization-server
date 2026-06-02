@@ -28,6 +28,24 @@ export class PlateRecognitionService {
    */
   async verifyFromFile(file: UploadedImageFile): Promise<PlateVerificationResult> {
     const recognition = await this.recognizeFromFile(file);
+    return this.matchRecognition(recognition);
+  }
+
+  /**
+   * Recognize a plate from a publicly reachable image URL and check it against
+   * the registered trucks. OCR.space fetches the URL directly, so we never have
+   * to download the image ourselves.
+   */
+  async verifyFromUrl(imageUrl: string): Promise<PlateVerificationResult> {
+    const recognition = await this.recognizeFromUrl(imageUrl);
+    return this.matchRecognition(recognition);
+  }
+
+  /**
+   * Match an OCR recognition result against the registered trucks, or throw a 404
+   * with context when nothing readable was found or the plate isn't registered.
+   */
+  private async matchRecognition(recognition: PlateRecognitionResult): Promise<PlateVerificationResult> {
     const truck = await this.findRegisteredTruck(recognition.candidates);
 
     if (!truck) {
@@ -56,6 +74,18 @@ export class PlateRecognitionService {
     const form = new FormData();
     const blob = new Blob([new Uint8Array(file.buffer)], { type: file.mimetype });
     form.append('file', blob, file.originalname || 'plate.jpg');
+
+    return this.parse(form);
+  }
+
+  /** Recognize a plate from a remote image URL (fetched by OCR.space). */
+  private async recognizeFromUrl(imageUrl: string): Promise<PlateRecognitionResult> {
+    if (!imageUrl?.trim()) {
+      throw new BadRequestException('No image URL was provided');
+    }
+
+    const form = new FormData();
+    form.append('url', imageUrl.trim());
 
     return this.parse(form);
   }
