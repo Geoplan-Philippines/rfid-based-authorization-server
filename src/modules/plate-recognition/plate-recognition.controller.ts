@@ -1,4 +1,4 @@
-import { Controller, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, HttpCode, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 
 import { PlateRecognitionService } from './plate-recognition.service';
@@ -13,6 +13,7 @@ export class PlateRecognitionController {
   // Upload an image in the `image` form-data field. Recognizes the plate and checks
   // it against the registered trucks in the database.
   @Post('verify')
+  @HttpCode(200)
   @UseInterceptors(FileInterceptor('image'))
   verifyFromFile(@UploadedFile() image: UploadedImageFile): Promise<PlateVerificationResult> {
     return this.plateRecognitionService.verifyFromFile(image);

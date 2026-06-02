@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 
 import { PrismaService } from 'src/core/database/prisma.service';
 import { env } from 'src/core/config/env.config';
@@ -8,12 +14,7 @@ import {
   PlateVerificationResult,
   UploadedImageFile,
 } from './types/plate-recognition.types';
-
-const OCR_SPACE_URL = 'https://api.ocr.space/parse/image';
-
-// Philippine plates are typically 3 letters + 3-4 digits (e.g. "ABC 1234", "NAA 123").
-// We also tolerate a leading separator (space or dash) between the two groups.
-const PLATE_PATTERN = /\b([A-Z]{2,3})[\s-]?(\d{3,4})\b/g;
+import { OCR_SPACE_URL, PLATE_DIGITS_FIRST, PLATE_LETTERS_FIRST } from './constants/plate-recognition-contants';
 
 @Injectable()
 export class PlateRecognitionService {
@@ -29,7 +30,21 @@ export class PlateRecognitionService {
     const recognition = await this.recognizeFromFile(file);
     const truck = await this.findRegisteredTruck(recognition.candidates);
 
-    return { ...recognition, registered: truck !== null, truck };
+    if (!truck) {
+      // Surface a 404 with context: either nothing readable was found in the image,
+      // or a plate was read but isn't registered to any active truck.
+      throw new NotFoundException({
+        message: recognition.plateNumber
+          ? `Plate "${recognition.plateNumber}" is not registered to any truck`
+          : 'No plate number could be recognized from the image',
+        plateNumber: recognition.plateNumber,
+        candidates: recognition.candidates,
+        rawText: recognition.rawText,
+        registered: false,
+      });
+    }
+
+    return { ...recognition, registered: true, truck };
   }
 
   /** Recognize a plate from an uploaded image file (in-memory buffer). */
@@ -96,14 +111,28 @@ export class PlateRecognitionService {
   /** Pull plate-like tokens out of raw OCR text, normalized to uppercase with no separators. */
   private extractPlateCandidates(rawText: string): string[] {
     const text = rawText.toUpperCase();
-    const seen = new Set<string>();
+    const found: { value: string; index: number }[] = [];
 
-    for (const match of text.matchAll(PLATE_PATTERN)) {
-      const normalized = `${match[1]}${match[2]}`;
-      if (!seen.has(normalized)) seen.add(normalized);
+    for (const match of text.matchAll(PLATE_LETTERS_FIRST)) {
+      found.push({ value: `${match[1]}${match[2]}`, index: match.index ?? 0 });
+    }
+    for (const match of text.matchAll(PLATE_DIGITS_FIRST)) {
+      found.push({ value: `${match[1]}${match[2]}`, index: match.index ?? 0 });
     }
 
-    return [...seen];
+    // Keep the order the tokens appear in the image, then drop duplicates.
+    found.sort((a, b) => a.index - b.index);
+
+    const seen = new Set<string>();
+    const candidates: string[] = [];
+    for (const { value } of found) {
+      if (!seen.has(value)) {
+        seen.add(value);
+        candidates.push(value);
+      }
+    }
+
+    return candidates;
   }
 
   /**

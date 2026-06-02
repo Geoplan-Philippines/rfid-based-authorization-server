@@ -1,3 +1,5 @@
+import { Truck } from "@prisma/client";
+
 export interface OcrSpaceParsedResult {
   ParsedText: string;
   ErrorMessage?: string;
@@ -21,7 +23,7 @@ export interface PlateRecognitionResult {
 
 export interface PlateVerificationResult extends PlateRecognitionResult {
   registered: boolean;
-  truck: import('@prisma/client').Truck | null;
+  truck: Truck | null;
 }
 
 export interface UploadedImageFile {
