@@ -33,7 +33,7 @@ model Driver {
   createdAt                     DateTime                  @default(now()) @map("created_at")
   updatedAt                     DateTime                  @updatedAt @map("updated_at")
 
-  assignedTrucks                Truck[]
+  truckAssignments              TruckDriverAssignment[]
   gateEvents                    GateEvent[]
 
   @@map("drivers")
@@ -46,16 +46,31 @@ model Truck {
   model                         String
   isArchived                    Boolean                   @default(false) @map("is_archived")
 
-  assignedDriverId              String?                   @map("assigned_driver_id")
-  assignedDriver                Driver?                   @relation(fields: [assignedDriverId], references: [id])
-  
   createdAt                     DateTime                  @default(now()) @map("created_at")
   updatedAt                     DateTime                  @updatedAt @map("updated_at")
 
   rfidTag                       RFIDTag?
+  driverAssignments             TruckDriverAssignment[]
   gateEvents                    GateEvent[]
   
   @@map("trucks")
+}
+
+model TruckDriverAssignment {
+  status                        TruckDriverAssignmentStatus    @default(ACTIVE)
+
+  truckId                       String                         @map("truck_id")
+  truck                         Truck                          @relation(fields: [truckId], references: [id], onDelete: Cascade)
+
+  driverId                      String                         @map("driver_id")
+  driver                        Driver                         @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  createdAt                     DateTime                       @default(now()) @map("created_at")
+  updatedAt                     DateTime                       @updatedAt @map("updated_at")
+
+  @@id([truckId, driverId])
+  @@index([driverId])
+  @@map("truck_driver_assignments")
 }
 
 model RFIDTag {
@@ -63,8 +78,8 @@ model RFIDTag {
   epcId                         String                    @unique @map("epc_id")
   status                        RFIDTagStatus             @default(ACTIVE)
 
-  assignedTruckId               String?                   @unique @map("assigned_truck_id")
-  assignedTruck                 Truck?                    @relation(fields: [assignedTruckId], references: [id])
+  assignedTruckId               String                    @unique @map("assigned_truck_id")
+  assignedTruck                 Truck                     @relation(fields: [assignedTruckId], references: [id])
 
   createdAt                     DateTime                  @default(now()) @map("created_at")
   updatedAt                     DateTime                  @updatedAt @map("updated_at")
@@ -157,8 +172,9 @@ model GateTimelineEvent {
 }
 
 enum Role {
-  ADMIN
   SUPER_ADMIN
+  ADMIN
+  OPERATOR
 }
 
 enum RFIDTagStatus {
@@ -166,6 +182,12 @@ enum RFIDTagStatus {
   INACTIVE
   LOST
   BLOCKED
+}
+
+enum TruckDriverAssignmentStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
 }
 
 enum GateEventResult {
