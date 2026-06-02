@@ -3,6 +3,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateDriverDTO } from './dto/create-driver.dto';
 import { GetAllDriversQueryDTO } from './dto/get-all-drivers-query.dto';
+import { DriverWithRelations } from './types/drivers.types';
 import { Driver, Prisma } from '@prisma/client';
 import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
 
@@ -49,10 +50,21 @@ export class DriversService {
     };
   }
 
+  async getAllDriversWithTrucks(): Promise<DriverWithRelations[]> {
+    return this.prisma.driver.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        truckAssignments: {
+          include: { truck: true },
+        },
+      },
+    });
+  }
+
   async findDriverById(id: string): Promise<Driver | null> {
     return this.prisma.driver.findUnique({ where: { id } });
   }
-  
+
   private toTitleCase(value: string): string {
     return value
       .trim()

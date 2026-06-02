@@ -15,6 +15,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { EmailModule } from './modules/email/email.module';
 import { DriversModule } from './modules/drivers/drivers.module';
 import { TrucksModule } from './modules/trucks/trucks.module';
+import { TruckDriverAssignmentModule } from './modules/truck-driver-assignment/truck-driver-assignment.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { TrucksModule } from './modules/trucks/trucks.module';
     AuthModule,
     EmailModule,
     DriversModule,
+    TruckDriverAssignmentModule,
     TrucksModule,
   ],
   controllers: [AppController],

@@ -1,10 +1,11 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 
 import { Truck } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateTruckDTO } from './dto/create-truck.dto';
 import { GetAllTrucksQueryDTO } from './dto/get-all-trucks-query.dto';
+import { TruckWithDrivers } from './types/trucks.types';
 import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
 
 @Injectable()
@@ -17,13 +18,6 @@ export class TrucksService {
     });
 
     if (existing) throw new ConflictException('Truck with the same plate number already exists');
-
-    if (createTruckDTO.assignedDriverId) {
-      const driver = await this.prisma.driver.findUnique({
-        where: { id: createTruckDTO.assignedDriverId },
-      });
-      if (!driver) throw new NotFoundException('Assigned driver not found');
-    }
 
     return this.prisma.truck.create({
       data: {
@@ -54,6 +48,17 @@ export class TrucksService {
         lastPage: Math.ceil(total / limit),
       },
     };
+  }
+
+  async getAllTrucksWithDrivers(): Promise<TruckWithDrivers[]> {
+    return this.prisma.truck.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        driverAssignments: {
+          include: { driver: true },
+        },
+      },
+    });
   }
 
   async findTruckById(id: string): Promise<Truck | null> {
