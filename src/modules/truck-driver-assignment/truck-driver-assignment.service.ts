@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
-import { Prisma, TruckDriverAssignmentStatus } from '@prisma/client';
+import { TruckDriverAssignmentStatus } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateAssignmentDTO } from './dto/create-assignment.dto';
@@ -8,11 +8,7 @@ import { GetAllAssignmentsQueryDTO } from './dto/get-all-assignments-query.dto';
 import { UpdateAssignmentStatusDTO } from './dto/update-assignment-status.dto';
 import { TruckDriverAssignmentWithRelations } from './types/truck-driver-assignment.types';
 import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
-
-const ASSIGNMENT_INCLUDE = {
-  truck: true,
-  driver: true,
-} satisfies Prisma.TruckDriverAssignmentInclude;
+import { ASSIGNMENT_INCLUDE } from './constants/assignment-include';
 
 @Injectable()
 export class TruckDriverAssignmentService {
@@ -36,9 +32,7 @@ export class TruckDriverAssignmentService {
     });
   }
 
-  async getAllAssignments(
-    query: GetAllAssignmentsQueryDTO,
-  ): Promise<PaginatedResponse<TruckDriverAssignmentWithRelations>> {
+  async getAllAssignments(query: GetAllAssignmentsQueryDTO): Promise<PaginatedResponse<TruckDriverAssignmentWithRelations>> {
     const { page, limit } = query;
 
     const [assignments, total] = await Promise.all([

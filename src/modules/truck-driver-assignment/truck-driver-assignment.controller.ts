@@ -15,23 +15,17 @@ export class TruckDriverAssignmentController {
   constructor(private readonly truckDriverAssignmentService: TruckDriverAssignmentService) {}
 
   @Post()
-  createAssignment(
-    @Body() createAssignmentDTO: CreateAssignmentDTO,
-  ): Promise<TruckDriverAssignmentWithRelations> {
+  createAssignment(@Body() createAssignmentDTO: CreateAssignmentDTO): Promise<TruckDriverAssignmentWithRelations> {
     return this.truckDriverAssignmentService.createAssignment(createAssignmentDTO);
   }
 
   @Get()
-  getAllAssignments(
-    @Query() query: GetAllAssignmentsQueryDTO,
-  ): Promise<PaginatedResponse<TruckDriverAssignmentWithRelations>> {
+  getAllAssignments(@Query() query: GetAllAssignmentsQueryDTO): Promise<PaginatedResponse<TruckDriverAssignmentWithRelations>> {
     return this.truckDriverAssignmentService.getAllAssignments(query);
   }
 
   @Patch()
-  updateAssignmentStatus(
-    @Body() updateAssignmentStatusDTO: UpdateAssignmentStatusDTO,
-  ): Promise<TruckDriverAssignmentWithRelations> {
+  updateAssignmentStatus(@Body() updateAssignmentStatusDTO: UpdateAssignmentStatusDTO,): Promise<TruckDriverAssignmentWithRelations> {
     return this.truckDriverAssignmentService.updateAssignmentStatus(updateAssignmentStatusDTO);
   }
 }
