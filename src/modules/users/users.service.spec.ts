@@ -19,7 +19,7 @@ const mockUser = {
   password: 'hashedpassword',
   role: 'ADMIN' as const,
   isArchived: false,
-  creaetedAt: new Date(),
+  createdAt: new Date(),
   updatedAt: new Date(),
 };
 
@@ -68,10 +68,16 @@ const mockPrismaService = {
       expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
         where: { email: 'juan@example.com' },
       });
-      expect(mockPrismaService.user.create).toHaveBeenCalled();
+      expect(mockPrismaService.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+        omit: { password: true },
+      }),
+    );
+
       expect(result).toEqual(mockSafeUser);
+      expect(result).not.toHaveProperty('password');
     });
- 
+
     it('normalizes email to lowercase and trimmed before lookup', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(null);
       mockPrismaService.user.create.mockResolvedValue(mockSafeUser);

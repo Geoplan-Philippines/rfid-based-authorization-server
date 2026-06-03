@@ -84,10 +84,13 @@ const mockJwtService = {
  
       await expect(service.validateUser(dto)).rejects.toThrow(UnauthorizedException);
  
-      expect(compareSpy).toHaveBeenCalled();
+      expect(compareSpy).toHaveBeenCalledWith(
+        dto.password,
+        expect.any(String),
+      );
     });
   });
- 
+
   describe('login', () => {
     const loginUser = {
       id: 'user-uuid-1',
@@ -107,24 +110,11 @@ const mockJwtService = {
         email: loginUser.email,
         role: loginUser.role,
       });
+
       expect(result).toEqual({
         ...loginUser,
         accessToken: 'mock-jwt-token',
       });
-    });
- 
-    it('includes correct JWT payload fields', async () => {
-      mockJwtService.signAsync.mockResolvedValue('mock-jwt-token');
- 
-      await service.login(loginUser);
- 
-      expect(mockJwtService.signAsync).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sub: loginUser.id,
-          email: loginUser.email,
-          role: loginUser.role,
-        }),
-      );
     });
   });
 });

@@ -52,6 +52,19 @@ describe('Users (e2e)', () => {
 
     const body = loginRes.body.data ?? loginRes.body;
     accessToken = body.accessToken;
+
+    const createdUserRes = await request(app.getHttpServer())
+      .post('/api/v1/users')
+      .send({
+        firstName: 'User',
+        lastName: 'E2E',
+        email: userEmail,
+        password: 'password123',
+      })
+      .expect(201);
+
+    const createdUserBody = createdUserRes.body.data ?? createdUserRes.body;
+    createdUserId = createdUserBody.id;
   });
 
   afterAll(async () => {
@@ -68,25 +81,16 @@ describe('Users (e2e)', () => {
 
   });
 
-  it('POST /api/v1/users — creates a user', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/api/v1/users')
-      .send({
-        firstName: 'User',
-        lastName: 'E2E',
-        email: userEmail,
-        password: 'password123',
-      })
-      .expect(201);
+  it('beforeAll setup created test user', async () => {
+    const user = await prisma.user.findUnique({
+      where: { email: userEmail },
+    });
 
-    const body = res.body.data ?? res.body;
+    expect(user).toBeDefined();
+    expect(user?.id).toBe(createdUserId);
+    expect(user?.email).toBe(userEmail);
 
-      expect(body.id).toBeDefined();
-      expect(body.email).toBe(userEmail);
-      expect(body.password).toBeUndefined();
-
-    createdUserId = body.id;
-  });
+    });
 
   it('POST /api/v1/users — 409 on duplicate email', async () => {
     await request(app.getHttpServer())
@@ -121,9 +125,12 @@ describe('Users (e2e)', () => {
     const body = res.body.data ?? res.body;
 
       expect(Array.isArray(body)).toBe(true);
-      expect(body.some((user: any) => user.email === userEmail)).toBe(true);
-  });
 
+      const emails = body.map((user: { email: string }) => user.email);
+      expect(emails).toContain(userEmail);
+
+  });
+    
   it('GET /api/v1/users — 401 without token', async () => {
     await request(app.getHttpServer())
       .get('/api/v1/users')
@@ -138,9 +145,9 @@ describe('Users (e2e)', () => {
 
     const body = res.body.data ?? res.body;
 
-      expect(body.id).toBe(createdUserId);
-      expect(body.email).toBe(userEmail);
-      expect(body.password).toBeUndefined();
+    expect(body.id).toBe(createdUserId);
+    expect(body.email).toBe(userEmail);
+    expect(body.password).toBeUndefined();
   });
 
   it('GET /api/v1/users/:id — 401 without token', async () => {
@@ -164,10 +171,10 @@ describe('Users (e2e)', () => {
   });
 
   it('POST /api/v1/users — 400 on missing required fields', async () => {
-  await request(app.getHttpServer())
-    .post('/api/v1/users')
-    .send({
-      firstName: 'Missing',
+    await request(app.getHttpServer())
+      .post('/api/v1/users')
+      .send({
+        firstName: 'Missing',
     })
       .expect(400);
   });

@@ -39,6 +39,14 @@ describe('Auth (e2e)', () => {
         role: 'ADMIN',
       },
     });
+
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password })
+      .expect(201);
+
+    const body = loginRes.body.data ?? loginRes.body;
+    accessToken = body.accessToken;
   });
 
   afterAll(async () => {
@@ -55,10 +63,9 @@ describe('Auth (e2e)', () => {
 
     const body = res.body.data ?? res.body;
 
-      expect(body.accessToken).toBeDefined();
-      expect(body.email).toBe(email);
+    expect(body.accessToken).toBeDefined();
+    expect(body.email).toBe(email);
 
-    accessToken = body.accessToken;
   });
 
   it('POST /api/v1/auth/login — 401 on invalid password', async () => {
@@ -68,7 +75,7 @@ describe('Auth (e2e)', () => {
       .expect(401);
   });
 
-  it('GET /api/v1/auth/ — returns authenticated user info', async () => {
+  it('GET /api/v1/auth/me — returns authenticated user info', async () => {
     const res = await request(app.getHttpServer())
       .get('/api/v1/auth/me')
       .set('Authorization', `Bearer ${accessToken}`)
@@ -76,8 +83,8 @@ describe('Auth (e2e)', () => {
 
     const body = res.body.data ?? res.body;
 
-      expect(body.email).toBe(email);
-      expect(body.password).toBeUndefined();
+    expect(body.email).toBe(email);
+    expect(body.password).toBeUndefined();
   });
 
   it('GET /api/v1/auth/me — 401 without token', async () => {
