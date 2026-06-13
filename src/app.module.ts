@@ -16,6 +16,8 @@ import { EmailModule } from './modules/email/email.module';
 import { DriversModule } from './modules/drivers/drivers.module';
 import { TrucksModule } from './modules/trucks/trucks.module';
 import { TruckDriverAssignmentModule } from './modules/truck-driver-assignment/truck-driver-assignment.module';
+import { TransactionsModule } from './modules/transactions/transactions.module';
+import { RfidTagsModule } from './modules/rfid-tags/rfid-tags.module';
 
 @Module({
   imports: [
@@ -28,6 +30,8 @@ import { TruckDriverAssignmentModule } from './modules/truck-driver-assignment/t
     DriversModule,
     TruckDriverAssignmentModule,
     TrucksModule,
+    TransactionsModule,
+    RfidTagsModule,
   ],
   controllers: [AppController],
   providers: [
