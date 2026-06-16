@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { GateEventResult, Prisma, RFIDTagStatus, SnapshotType, TimelineEventType, TruckDriverAssignmentStatus } from '@prisma/client';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { GateEventResult, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
@@ -9,7 +9,7 @@ import { RecordPlateReadDTO } from './dto/record-plate-read.dto';
 import { RecordFaceReadDTO } from './dto/record-face-read.dto';
 import { RecordBarrierEventDTO } from './dto/record-barrier-event.dto';
 import { AuthenticatedUser } from '../auth/types/auth.types';
-import { TransactionDetail, TransactionListItem, transactionDetailInclude, transactionListInclude } from './types/transactions.types';
+import { OpenTransaction, TransactionDetail, TransactionListItem, openTransactionInclude, transactionDetailInclude, transactionListInclude } from './types/transactions.types';
 import { toTransactionDetail, toTransactionListItem } from './transactions.mapper';
 import { TERMINAL_RESULTS } from './transactions.policy';
 
@@ -19,14 +19,6 @@ import { TERMINAL_RESULTS } from './transactions.policy';
 const HARDCODED_PLATE_CONFIDENCE = 0.96; // TODO: always provided by the OCR service
 const HARDCODED_FACE_CONFIDENCE = 0.88; // TODO: always provided by the face-recognition service
 const PLACEHOLDER_SNAPSHOT_URL = 'https://placeholder.local/snapshot.jpg'; // TODO: real capture storage
-
-// Open transaction = active, verifiable, and not yet closed by the barrier step.
-const openTransactionInclude = {
-  truck: { include: { driverAssignments: { where: { status: TruckDriverAssignmentStatus.ACTIVE }, take: 1 } } },
-  verification: true,
-} satisfies Prisma.GateEventInclude;
-
-type OpenTransaction = Prisma.GateEventGetPayload<{ include: typeof openTransactionInclude }>;
 
 @Injectable()
 export class TransactionsService {
@@ -110,6 +102,12 @@ export class TransactionsService {
   // Stage 2 — plate-recognition service reports the read plate. Patches the latest open transaction.
   async recordPlateRead(body: RecordPlateReadDTO): Promise<TransactionDetail> {
     const event = await this.findOpenTransaction();
+    // Idempotency: the plate stage runs once. A retry (already-stamped verification) is rejected
+    // rather than appending duplicate timeline rows + snapshots.
+    if (event.verification && event.verification.plateMatched !== null) {
+      throw new ConflictException('Plate read already recorded for this transaction');
+    }
+
     const truckPlate = event.truck!.plateNumber;
     const plateMatched = body.plateNumberRead === truckPlate;
 
@@ -156,6 +154,12 @@ export class TransactionsService {
   // transaction. The backend computes the match against the truck's assigned driver.
   async recordFaceRead(body: RecordFaceReadDTO): Promise<TransactionDetail> {
     const event = await this.findOpenTransaction();
+    // Idempotency: the face stage runs once. A retry (already-stamped verification) is rejected
+    // rather than appending duplicate timeline rows + snapshots.
+    if (event.verification && event.verification.faceMatched !== null) {
+      throw new ConflictException('Face read already recorded for this transaction');
+    }
+
     const assignedDriverId = event.truck!.driverAssignments[0]?.driverId ?? null;
 
     if (body.driverId) {

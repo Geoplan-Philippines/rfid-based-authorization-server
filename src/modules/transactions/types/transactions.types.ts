@@ -28,8 +28,16 @@ export const transactionDetailInclude = {
   timeline: { orderBy: { occurredAt: 'asc' } },
 } satisfies Prisma.GateEventInclude;
 
+// Open transaction = active, verifiable, and not yet closed by the barrier step.
+// Minimal include the pipeline stages (plate/face/barrier) need to patch the current event.
+export const openTransactionInclude = {
+  truck: { include: { driverAssignments: { where: { status: TruckDriverAssignmentStatus.ACTIVE }, take: 1 } } },
+  verification: true,
+} satisfies Prisma.GateEventInclude;
+
 export type GateEventListPayload = Prisma.GateEventGetPayload<{ include: typeof transactionListInclude }>;
 export type GateEventDetailPayload = Prisma.GateEventGetPayload<{ include: typeof transactionDetailInclude }>;
+export type OpenTransaction = Prisma.GateEventGetPayload<{ include: typeof openTransactionInclude }>;
 
 // Frontend-facing shapes. Display helpers (plateMismatch, truckInRegistry, faceMatchesAssigned)
 // are computed by the backend so the UI can render directly.
