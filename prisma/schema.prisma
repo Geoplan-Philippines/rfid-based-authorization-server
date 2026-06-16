@@ -91,12 +91,12 @@ model RFIDTag {
 
 model EventVerification {
   id                            String                    @id @default(uuid())
-  verifiedAt                    DateTime                  @map("verified_at")
   rfidMatched                   Boolean                   @map("rfid_matched")
   faceMatched                   Boolean?                  @map("face_matched")
   plateMatched                  Boolean?                  @map("plate_matched")
   faceConfidence                Float?                    @map("face_confidence")
   plateConfidence               Float?                    @map("plate_confidence")
+  verifiedAt                    DateTime                  @default(now()) @map("verified_at")
 
   gateEventId                   String                    @unique @map("gate_event_id")
   gateEvent                     GateEvent                 @relation(fields: [gateEventId], references: [id])
@@ -110,9 +110,9 @@ model EventVerification {
 model GateEvent {
   id                            String                    @id @default(uuid())
   eventCode                     String                    @unique @map("event_code")
-  occurredAt                    DateTime                  @map("occurred_at")
-  result                        GateEventResult
   plateNumberRead               String?                   @map("plate_number_read")
+  result                        GateEventResult
+  occurredAt                    DateTime                  @default(now()) @map("occurred_at")
 
   rfidTagId                     String?                   @map("rfid_tag_id")
   rfidTag                       RFIDTag?                  @relation(fields: [rfidTagId], references: [id])
@@ -130,7 +130,6 @@ model GateEvent {
   createdAt                     DateTime                  @default(now()) @map("created_at")
   updatedAt                     DateTime                  @updatedAt @map("updated_at")
   
-  @@index([eventCode])
   @@index([occurredAt])
   @@index([result])
   @@index([truckId])
@@ -151,6 +150,8 @@ model GateSnapshot {
   createdAt                     DateTime                  @default(now()) @map("created_at")
   updatedAt                     DateTime                  @updatedAt @map("updated_at")
 
+  @@index([gateEventId])
+  @@index([type])
   @@map("gate_snapshots")
 }
 
@@ -168,6 +169,7 @@ model GateTimelineEvent {
   updatedAt                     DateTime                  @updatedAt @map("updated_at")
 
   @@index([gateEventId])
+  @@index([type])
   @@map("gate_timeline_events")
 }
 
@@ -195,8 +197,9 @@ enum GateEventResult {
   UNKNOWN_TAG
   FACE_MISMATCH
   PLATE_MISMATCH
-  DENIED
   MANUAL_OVERRIDE
+  DENIED
+  ERROR
 }
 
 enum SnapshotType {
@@ -206,10 +209,12 @@ enum SnapshotType {
 }
 
 enum TimelineEventType {
-  PLATE_CAPTURED
-  FACE_CAPTURED
-  FACE_MATCHED
   RFID_SCANNED
   TAG_VALIDATED
+  PLATE_CAPTURED
+  PLATE_MATCHED
+  FACE_CAPTURED
+  FACE_MATCHED
   BARRIER_OPENED
+  MANUAL_OVERRIDE
 }
