@@ -9,12 +9,14 @@ import { RecordBarrierEventDTO } from './dto/record-barrier-event.dto';
 import { TransactionDetail, TransactionListItem } from './types/transactions.types';
 import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
 import { PassportJwtGuard } from '../auth/guards/passport-jwt.guard';
+import { ApiKeyGuard } from '../api-keys/guards/api-key.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
 
-// TODO: Apply RolesGuard and @Roles() decorator to all routes.
-// TODO: The ingestion routes below are the contracts each gate device/service will POST to.
-//       They are JWT-guarded for now; swap to a device/service credential (API key) when wired.
+// TODO: Apply RolesGuard and @Roles() decorator to the operator-facing routes.
+// The ingestion routes below are the contracts each gate device/service POSTs to. They are
+// authenticated by a shared device credential (x-api-key header) via ApiKeyGuard, not a
+// human-login JWT. barrier-events stays JWT-guarded: it records the acting operator.
 @Controller('transactions')
 export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
@@ -33,21 +35,21 @@ export class TransactionsController {
 
   // Stage 1 — RFID reader. Opens a new transaction.
   @Post('rfid-reads')
-  @UseGuards(PassportJwtGuard)
+  @UseGuards(ApiKeyGuard)
   async recordRfidRead(@Body() body: RecordRfidReadDTO): Promise<TransactionDetail> {
     return this.transactionsService.recordRfidRead(body);
   }
 
   // Stage 2 — plate-recognition (OCR) service. Patches the latest open transaction.
   @Post('plate-reads')
-  @UseGuards(PassportJwtGuard)
+  @UseGuards(ApiKeyGuard)
   async recordPlateRead(@Body() body: RecordPlateReadDTO): Promise<TransactionDetail> {
     return this.transactionsService.recordPlateRead(body);
   }
 
   // Stage 3 — face-recognition service. Patches the latest open transaction.
   @Post('face-reads')
-  @UseGuards(PassportJwtGuard)
+  @UseGuards(ApiKeyGuard)
   async recordFaceRead(@Body() body: RecordFaceReadDTO): Promise<TransactionDetail> {
     return this.transactionsService.recordFaceRead(body);
   }
