@@ -64,13 +64,16 @@ export class ApiKeysService {
   }
 
   async revokeApiKey(id: string): Promise<ApiKeyListItem> {
-    const existing = await this.prisma.apiKey.findUnique({ where: { id } });
+    const existing = await this.prisma.apiKey.findUnique({
+      where: { id },
+      select: { id: true, revokedAt: true },
+    });
 
     if (!existing) throw new NotFoundException('API key not found');
     if (existing.revokedAt) throw new ConflictException('API key is already revoked');
 
     return this.prisma.apiKey.update({
-      where: { id },
+      where: { id, revokedAt: null },
       data: { revokedAt: new Date() },
       select: LIST_ITEM_SELECT,
     });
