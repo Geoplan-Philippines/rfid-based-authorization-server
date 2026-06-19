@@ -18,6 +18,7 @@ import { TrucksModule } from './modules/trucks/trucks.module';
 import { TruckDriverAssignmentModule } from './modules/truck-driver-assignment/truck-driver-assignment.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { RfidTagsModule } from './modules/rfid-tags/rfid-tags.module';
+import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { RfidTagsModule } from './modules/rfid-tags/rfid-tags.module';
     TrucksModule,
     TransactionsModule,
     RfidTagsModule,
+    AuditLogsModule,
   ],
   controllers: [AppController],
   providers: [

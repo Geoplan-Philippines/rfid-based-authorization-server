@@ -1,8 +1,13 @@
-import { IsEnum } from 'class-validator';
+import { IsEnum, IsOptional } from 'class-validator';
 
-import { TruckDriverAssignmentStatus } from '@prisma/client';
+import { AssignmentRole, TruckDriverAssignmentStatus } from '@prisma/client';
 
 export class UpdateAssignmentStatusDTO {
+  @IsOptional()
   @IsEnum(TruckDriverAssignmentStatus)
-  status!: TruckDriverAssignmentStatus;
+  status?: TruckDriverAssignmentStatus;
+
+  @IsOptional()
+  @IsEnum(AssignmentRole)
+  role?: AssignmentRole;
 }

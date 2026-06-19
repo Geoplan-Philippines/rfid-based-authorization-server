@@ -1,15 +1,14 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { GateEventResult, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
+import { GateEventResult, Prisma, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
-import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
 import { GetAllTransactionsQueryDTO } from './dto/get-all-transactions-query.dto';
 import { RecordRfidReadDTO } from './dto/record-rfid-read.dto';
 import { RecordPlateReadDTO } from './dto/record-plate-read.dto';
 import { RecordFaceReadDTO } from './dto/record-face-read.dto';
 import { RecordBarrierEventDTO } from './dto/record-barrier-event.dto';
 import { AuthenticatedUser } from '../auth/types/auth.types';
-import { OpenTransaction, TransactionDetail, TransactionListItem, openTransactionInclude, transactionDetailInclude, transactionListInclude } from './types/transactions.types';
+import { OpenTransaction, TransactionDetail, TransactionListResponse, TransactionResultCounts, openTransactionInclude, transactionDetailInclude, transactionListInclude } from './types/transactions.types';
 import { toTransactionDetail, toTransactionListItem } from './transactions.mapper';
 import { TERMINAL_RESULTS } from './transactions.policy';
 
@@ -24,17 +23,21 @@ const PLACEHOLDER_SNAPSHOT_URL = 'https://placeholder.local/snapshot.jpg'; // TO
 export class TransactionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getAllTransactions(query: GetAllTransactionsQueryDTO): Promise<PaginatedResponse<TransactionListItem>> {
+  async getAllTransactions(query: GetAllTransactionsQueryDTO): Promise<TransactionListResponse> {
     const { page, limit } = query;
+    const where = this.buildListWhere(query);
+    const countsWhere = this.buildListWhere(query, { includeResult: false });
 
-    const [events, total] = await Promise.all([
+    const [events, total, counts] = await Promise.all([
       this.prisma.gateEvent.findMany({
+        where,
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { occurredAt: 'desc' },
         include: transactionListInclude,
       }),
-      this.prisma.gateEvent.count(),
+      this.prisma.gateEvent.count({ where }),
+      this.getResultCounts(countsWhere),
     ]);
 
     return {
@@ -44,6 +47,7 @@ export class TransactionsService {
         page,
         limit,
         lastPage: Math.ceil(total / limit),
+        counts,
       },
     };
   }
@@ -252,15 +256,59 @@ export class TransactionsService {
 
   // --- Pipeline helpers ------------------------------------------------------
 
-  // The open transaction is the most recent verifiable event not yet closed by the barrier step.
-  // For a single gate only one truck is at the barrier at a time, so "latest open" is unambiguous.
+  private buildListWhere(query: GetAllTransactionsQueryDTO, options: { includeResult?: boolean } = {}): Prisma.GateEventWhereInput {
+    const includeResult = options.includeResult ?? true;
+    const filters: Prisma.GateEventWhereInput[] = [];
+    const search = query.search?.trim();
+
+    if (search) {
+      filters.push({
+        OR: [
+          { eventCode: { contains: search, mode: 'insensitive' } },
+          { plateNumberRead: { contains: search, mode: 'insensitive' } },
+          { rfidTag: { is: { epcId: { contains: search, mode: 'insensitive' } } } },
+          { truck: { is: { plateNumber: { contains: search, mode: 'insensitive' } } } },
+        ],
+      });
+    }
+
+    if (includeResult && query.result) {
+      filters.push({ result: query.result });
+    }
+
+    return filters.length > 0 ? { AND: filters } : {};
+  }
+
+  private async getResultCounts(where: Prisma.GateEventWhereInput): Promise<TransactionResultCounts> {
+    const groupedCounts = await this.prisma.gateEvent.groupBy({
+      by: ['result'],
+      where,
+      _count: { _all: true },
+    });
+
+    const counts = Object.values(GateEventResult).reduce((acc, result) => {
+      acc[result] = 0;
+      return acc;
+    }, {} as TransactionResultCounts);
+
+    for (const group of groupedCounts) {
+      counts[group.result] = group._count._all;
+    }
+
+    return counts;
+  }
+
+  // Single-file lane: open transactions form a FIFO queue. The truck currently under the
+  // cameras/boom is the OLDEST event not yet closed by the barrier step. UHF RFID range can read a
+  // following truck early and open a 2nd transaction; that one stays queued behind. So reads attach
+  // to the oldest open (FIFO), never the latest — picking "latest" would misroute onto a later truck.
   private async findOpenTransaction(): Promise<OpenTransaction> {
     const event = await this.prisma.gateEvent.findFirst({
       where: {
         result: { notIn: TERMINAL_RESULTS },
         timeline: { none: { type: TimelineEventType.BARRIER_OPENED } },
       },
-      orderBy: { occurredAt: 'desc' },
+      orderBy: { occurredAt: 'asc' },
       include: openTransactionInclude,
     });
 

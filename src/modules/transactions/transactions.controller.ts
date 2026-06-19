@@ -6,8 +6,7 @@ import { RecordRfidReadDTO } from './dto/record-rfid-read.dto';
 import { RecordPlateReadDTO } from './dto/record-plate-read.dto';
 import { RecordFaceReadDTO } from './dto/record-face-read.dto';
 import { RecordBarrierEventDTO } from './dto/record-barrier-event.dto';
-import { TransactionDetail, TransactionListItem } from './types/transactions.types';
-import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
+import { TransactionDetail, TransactionListResponse } from './types/transactions.types';
 import { PassportJwtGuard } from '../auth/guards/passport-jwt.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
@@ -20,8 +19,8 @@ export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
 
   @Get()
-  @UseGuards(PassportJwtGuard)
-  async getAllTransactions(@Query() query: GetAllTransactionsQueryDTO): Promise<PaginatedResponse<TransactionListItem>> {
+  // @UseGuards(PassportJwtGuard)
+  async getAllTransactions(@Query() query: GetAllTransactionsQueryDTO): Promise<TransactionListResponse> {
     return this.transactionsService.getAllTransactions(query);
   }
 
@@ -33,7 +32,7 @@ export class TransactionsController {
 
   // Stage 1 — RFID reader. Opens a new transaction.
   @Post('rfid-reads')
-  @UseGuards(PassportJwtGuard)
+  // @UseGuards(PassportJwtGuard)
   async recordRfidRead(@Body() body: RecordRfidReadDTO): Promise<TransactionDetail> {
     return this.transactionsService.recordRfidRead(body);
   }
