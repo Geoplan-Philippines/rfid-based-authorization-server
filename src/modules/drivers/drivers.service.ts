@@ -65,6 +65,17 @@ export class DriversService {
     return this.prisma.driver.findUnique({ where: { id } });
   }
 
+  async getDriverWithTrucksById(id: string): Promise<DriverWithRelations | null> {
+    return this.prisma.driver.findUnique({
+      where: { id },
+      include: {
+        truckAssignments: {
+          include: { truck: true },
+        },
+      },
+    });
+  }
+
   private toTitleCase(value: string): string {
     return value
       .trim()

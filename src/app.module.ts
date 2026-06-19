@@ -17,6 +17,8 @@ import { DriversModule } from './modules/drivers/drivers.module';
 import { TrucksModule } from './modules/trucks/trucks.module';
 import { TruckDriverAssignmentModule } from './modules/truck-driver-assignment/truck-driver-assignment.module';
 import { PlateRecognitionModule } from './modules/plate-recognition/plate-recognition.module';
+import { TransactionsModule } from './modules/transactions/transactions.module';
+import { RfidTagsModule } from './modules/rfid-tags/rfid-tags.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { PlateRecognitionModule } from './modules/plate-recognition/plate-recogn
     TruckDriverAssignmentModule,
     TrucksModule,
     PlateRecognitionModule,
+    TransactionsModule,
+    RfidTagsModule,
   ],
   controllers: [AppController],
   providers: [

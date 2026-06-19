@@ -32,6 +32,14 @@ export class DriversController {
     return this.driversService.getAllDriversWithTrucks();
   }
 
+  @Get(':id/with-trucks')
+  @UseGuards(PassportJwtGuard)
+  async getDriverWithTrucksById(@Param('id', ParseUUIDPipe) id: string): Promise<DriverWithRelations> {
+    const driver = await this.driversService.getDriverWithTrucksById(id);
+    if (!driver) throw new NotFoundException('Driver not found');
+    return driver;
+  }
+
   @Get(':id')
   @UseGuards(PassportJwtGuard)
   async findDriverById(@Param('id', ParseUUIDPipe) id: string): Promise<Driver> {
