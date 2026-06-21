@@ -23,6 +23,7 @@ const schema = z.object({
       'Must be an email or "Name <email>" format',
     ),
   RESEND_VERIFY_TEMPLATE_ID: z.string().min(1).optional(),
+  OCR_SPACE_API_KEY: z.string().min(1),
 });
 
 const parsed = schema.safeParse(process.env);
