@@ -23,6 +23,13 @@ const schema = z.object({
       'Must be an email or "Name <email>" format',
     ),
   RESEND_VERIFY_TEMPLATE_ID: z.string().min(1).optional(),
+  RESEND_EAGLE_CEMENT_TEMPLATE_ID: z.string().min(1),
+  // Comma-separated reviewer addresses that receive the auto-sent alert when a transaction
+  // finishes with a non-VERIFIED result. Empty means auto-alerting is disabled.
+  TRANSACTION_ALERT_RECIPIENTS: z
+    .string()
+    .default('')
+    .transform((s) => s.split(',').map((e) => e.trim()).filter(Boolean)),
   OCR_SPACE_API_KEY: z.string().min(1),
 });
 
