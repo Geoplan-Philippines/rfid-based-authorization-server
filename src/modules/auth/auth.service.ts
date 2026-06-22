@@ -22,7 +22,7 @@ export class AuthService {
     const user = await this.usersService.findUserByEmail(loginDto.email);
     const isValid = await bcrypt.compare(loginDto.password, user?.password ?? DUMMY_HASH);
 
-    if (!user || !isValid) {
+    if (!user || !isValid || user.isArchived) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
