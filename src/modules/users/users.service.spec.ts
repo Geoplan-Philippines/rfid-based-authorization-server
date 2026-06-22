@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 import { UsersService } from './users.service';
@@ -111,6 +112,24 @@ describe('UsersService', () => {
       expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
 
+    it('throws ConflictException when the user is archived', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ ...mockUser, isArchived: true });
+
+      await expect(
+        service.updateUser('user-uuid-1', { firstName: 'New' })
+      ).rejects.toThrow(ConflictException);
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('throws ForbiddenException when attempting to set role to SUPER_ADMIN', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(mockUser);
+
+      await expect(
+        service.updateUser('user-uuid-1', { role: 'SUPER_ADMIN' as const })
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
     it('updates non-email, non-password fields directly', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(mockUser);
       const { password, ...safeUser } = { ...mockUser, firstName: 'Updated' };
@@ -170,16 +189,25 @@ describe('UsersService', () => {
   });
 
   describe('archiveUser / unarchiveUser', () => {
-    it('throws NotFoundException when the user does not exist', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(null);
+    it('throws NotFoundException when Prisma reports the row does not exist (P2025)', async () => {
+      const notFoundError = new Prisma.PrismaClientKnownRequestError('No record found', {
+        code: 'P2025',
+        clientVersion: 'test',
+      });
+      mockPrisma.user.update.mockRejectedValue(notFoundError);
 
       await expect(service.archiveUser('nonexistent-uuid')).rejects.toThrow(NotFoundException);
       await expect(service.unarchiveUser('nonexistent-uuid')).rejects.toThrow(NotFoundException);
-      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('re-throws unrelated errors from Prisma without converting them', async () => {
+      const otherError = new Error('connection lost');
+      mockPrisma.user.update.mockRejectedValue(otherError);
+
+      await expect(service.archiveUser('user-uuid-1')).rejects.toThrow('connection lost');
     });
 
     it('archiveUser sets isArchived to true, unarchiveUser sets it back to false', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(mockUser);
       const { password, ...archived } = { ...mockUser, isArchived: true };
       mockPrisma.user.update.mockResolvedValueOnce(archived);
 

@@ -192,10 +192,24 @@ describe('Users (e2e)', () => {
     });
 
     it('normalizes a newly patched email', async () => {
-      const newEmail = `${userEmail.split('@')[0]}-patched@EXAMPLE.com`;
+      const emailTestUserEmail = `users-email-patch-e2e-${Date.now()}@example.com`;
+      const newEmail = `${emailTestUserEmail.split('@')[0]}-patched@EXAMPLE.com`;
+
+      const createRes = await request(app.getHttpServer())
+        .post('/api/v1/users')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          firstName: 'Email',
+          lastName: 'Patch',
+          email: emailTestUserEmail,
+          password: 'password123',
+        })
+        .expect(201);
+
+      const emailTestUserId = (createRes.body.data ?? createRes.body).id;
 
       const res = await request(app.getHttpServer())
-        .patch(`/api/v1/users/${createdUserId}`)
+        .patch(`/api/v1/users/${emailTestUserId}`)
         .set('Authorization', `Bearer ${accessToken}`)
         .send({ email: newEmail })
         .expect(200);
@@ -203,9 +217,8 @@ describe('Users (e2e)', () => {
       const body = res.body.data ?? res.body;
       expect(body.email).toBe(newEmail.toLowerCase());
 
-      await prisma.user.update({
-        where: { id: createdUserId },
-        data: { email: userEmail },
+      await prisma.user.deleteMany({
+        where: { email: { in: [emailTestUserEmail, newEmail.toLowerCase()] } },
       });
     });
 
@@ -253,6 +266,44 @@ describe('Users (e2e)', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({ firstName: 'Ghost' })
         .expect(400);
+    });
+
+    it('403s when attempting to set role to SUPER_ADMIN', async () => {
+      await request(app.getHttpServer())
+        .patch(`/api/v1/users/${createdUserId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ role: 'SUPER_ADMIN' })
+        .expect(403);
+    });
+
+    it('409s when attempting to update an archived user', async () => {
+      const archivedEmail = `users-patch-archived-e2e-${Date.now()}@example.com`;
+
+      const createRes = await request(app.getHttpServer())
+        .post('/api/v1/users')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          firstName: 'Already',
+          lastName: 'Archived',
+          email: archivedEmail,
+          password: 'password123',
+        })
+        .expect(201);
+
+      const archivedUserId = (createRes.body.data ?? createRes.body).id;
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/users/${archivedUserId}/archive`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/users/${archivedUserId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ firstName: 'ShouldNotApply' })
+        .expect(409);
+
+      await prisma.user.deleteMany({ where: { email: archivedEmail } });
     });
 
     it('401s without a token', async () => {

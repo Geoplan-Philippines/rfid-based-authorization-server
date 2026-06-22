@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
@@ -102,6 +102,16 @@ describe('UsersController', () => {
       await expect(
         controller.updateUser('user-uuid-1', { email: 'taken@example.com' })
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('propagates ForbiddenException when promoting to SUPER_ADMIN', async () => {
+      mockUsersService.updateUser.mockRejectedValue(
+        new ForbiddenException('Cannot promote a user to SUPER_ADMIN via this endpoint.')
+      );
+
+      await expect(
+        controller.updateUser('user-uuid-1', { role: 'SUPER_ADMIN' as const })
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

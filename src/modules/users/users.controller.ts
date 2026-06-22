@@ -15,7 +15,7 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post()
-  // @UseGuards(PassportJwtGuard, RolesGuard)
+  @UseGuards(PassportJwtGuard, RolesGuard)
   @Roles(Role.SUPER_ADMIN)
   createUser(@Body() createUserDTO: CreateUserDTO): Promise<SafeUser> {
     return this.usersService.createUser(createUserDTO);
@@ -44,15 +44,14 @@ export class UsersController {
   ): Promise<SafeUser> {
     return this.usersService.updateUser(id, updateUserDTO);
   }
-
+ 
   @Patch(':id/archive')
   @UseGuards(PassportJwtGuard, RolesGuard)
   @Roles(Role.SUPER_ADMIN)
-  archiveUser(@Param('id', ParseUUIDPipe)id: string
-  ): Promise<SafeUser> {
+  archiveUser(@Param('id', ParseUUIDPipe) id: string): Promise<SafeUser> {
     return this.usersService.archiveUser(id);
   }
-
+ 
   @Patch(':id/unarchive')
   @UseGuards(PassportJwtGuard, RolesGuard)
   @Roles(Role.SUPER_ADMIN)

@@ -1,14 +1,16 @@
-import { IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { Role } from '@prisma/client';
 
 export class UpdateUserDTO {
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   firstName?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   lastName?: string;
 
   @IsOptional()
