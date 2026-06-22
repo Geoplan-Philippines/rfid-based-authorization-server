@@ -14,7 +14,7 @@ import {
   PlateVerificationResult,
   UploadedImageFile,
 } from './types/plate-recognition.types';
-import { OCR_SPACE_URL, PLATE_DIGITS_FIRST, PLATE_LETTERS_FIRST } from './constants/plate-recognition-contants';
+import { OCR_SPACE_URL, PLATE_DIGITS_FIRST, PLATE_LETTERS_FIRST } from './constants/plate-recognition-constants';
 
 @Injectable()
 export class PlateRecognitionService {

@@ -1,15 +1,16 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateUserDTO } from './dto/create-user.dto';
-import { User } from '@prisma/client';
+import { UpdateUserDTO } from './dto/update-user.dto';
+import { Prisma, Role, User } from '@prisma/client';
 import type { SafeUser } from './types/users.types';
 
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
-  
+
   async createUser(createUserDTO: CreateUserDTO): Promise<SafeUser> {
     const email = this.normalizeEmail(createUserDTO.email);
 
@@ -26,19 +27,86 @@ export class UsersService {
     });
   }
 
-  async getAllUsers() {
-    return this.prisma.user.findMany({ omit: { password: true } });
+  async getAllUsers(includeArchived = false) {
+    return this.prisma.user.findMany({
+      where: includeArchived ? undefined : { isArchived: false },
+      omit: { password: true },
+    });
   }
 
   async findUserByEmail(email: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { email: this.normalizeEmail(email) } });
   }
 
-  async findUserById(id: string): Promise<SafeUser | null> {
-    return this.prisma.user.findUnique({
+  async findUserById(id: string, includeArchived = false): Promise<SafeUser | null> {
+    const user = await this.prisma.user.findUnique({
       where: { id },
       omit: { password: true },
     });
+
+    if (!user) return null;
+    if (!includeArchived && user.isArchived) return null;
+
+    return user;
+  }
+
+  async updateUser(id: string, updateUserDTO: UpdateUserDTO): Promise<SafeUser> {
+    const existing = await this.prisma.user.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('User not found');
+    if (existing.isArchived) {
+      throw new ConflictException('Cannot update an archived user. Unarchive it first.');
+    }
+
+    if (updateUserDTO.role === Role.SUPER_ADMIN) {
+      throw new ForbiddenException('Cannot promote a user to SUPER_ADMIN via this endpoint.');
+    }
+
+    const { password, email, ...rest } = updateUserDTO;
+    const data: Partial<User> = { ...rest };
+
+    if (email) {
+      const normalizedEmail = this.normalizeEmail(email);
+
+      if (normalizedEmail !== existing.email) {
+        const conflict = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
+        if (conflict) throw new ConflictException('Email already in use');
+      }
+
+      data.email = normalizedEmail;
+    }
+
+    if (password) {
+      data.password = await bcrypt.hash(password, 10);
+    }
+
+    return this.prisma.user.update({
+      where: { id },
+      data,
+      omit: { password: true },
+    });
+  }
+
+  async archiveUser(id: string): Promise<SafeUser> {
+    return this.setArchivedStatus(id, true);
+  }
+
+  async unarchiveUser(id: string): Promise<SafeUser> {
+    return this.setArchivedStatus(id, false);
+  }
+
+  private async setArchivedStatus(id: string, isArchived: boolean): Promise<SafeUser> {
+    try {
+      return await this.prisma.user.update({
+        where: { id },
+        data: { isArchived },
+        omit: { password: true },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        throw new NotFoundException('User not found');
+      }
+      throw e;
+    }
   }
 
   private normalizeEmail(email: string): string {
