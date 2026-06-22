@@ -41,14 +41,12 @@ export class TransactionsController {
 
   // Stage 2 — plate-recognition (OCR) service. Patches the latest open transaction.
   @Post('plate-reads')
-  @UseGuards(ApiKeyGuard)
   async recordPlateRead(@Body() body: RecordPlateReadDTO): Promise<TransactionDetail> {
     return this.transactionsService.recordPlateRead(body);
   }
 
   // Stage 3 — face-recognition service. Patches the latest open transaction.
   @Post('face-reads')
-  @UseGuards(ApiKeyGuard)
   async recordFaceRead(@Body() body: RecordFaceReadDTO): Promise<TransactionDetail> {
     return this.transactionsService.recordFaceRead(body);
   }
