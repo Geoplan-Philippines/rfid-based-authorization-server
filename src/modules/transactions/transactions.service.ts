@@ -1,17 +1,9 @@
-<<<<<<< Updated upstream
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { GateEventResult, Prisma, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
-
-import { PrismaService } from '../../core/database/prisma.service';
-=======
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { GateEventResult, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
+import { GateEventResult, Prisma, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import { EmailService } from '../email/email.service';
 import { env } from 'src/core/config/env.config';
-import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
->>>>>>> Stashed changes
 import { GetAllTransactionsQueryDTO } from './dto/get-all-transactions-query.dto';
 import { RecordRfidReadDTO } from './dto/record-rfid-read.dto';
 import { RecordPlateReadDTO } from './dto/record-plate-read.dto';
@@ -275,7 +267,6 @@ export class TransactionsService {
 
   // --- Pipeline helpers ------------------------------------------------------
 
-<<<<<<< Updated upstream
   private buildListWhere(query: GetAllTransactionsQueryDTO, options: { includeResult?: boolean } = {}): Prisma.GateEventWhereInput {
     const includeResult = options.includeResult ?? true;
     const filters: Prisma.GateEventWhereInput[] = [];
@@ -318,11 +309,6 @@ export class TransactionsService {
     return counts;
   }
 
-  // Single-file lane: open transactions form a FIFO queue. The truck currently under the
-  // cameras/boom is the OLDEST event not yet closed by the barrier step. UHF RFID range can read a
-  // following truck early and open a 2nd transaction; that one stays queued behind. So reads attach
-  // to the oldest open (FIFO), never the latest — picking "latest" would misroute onto a later truck.
-=======
   // Fire-and-forget alert email. Email is a side effect of completing the transaction, so a Resend
   // failure (or no configured recipients) must never fail the request — errors are logged instead.
   private dispatchTransactionAlert(transaction: TransactionDetail): void {
@@ -340,9 +326,10 @@ export class TransactionsService {
       .catch((error) => this.logger.error(`Transaction alert failed for ${transaction.eventCode}`, error instanceof Error ? error.stack : String(error)));
   }
 
-  // The open transaction is the most recent verifiable event not yet closed by the barrier step.
-  // For a single gate only one truck is at the barrier at a time, so "latest open" is unambiguous.
->>>>>>> Stashed changes
+  // Single-file lane: open transactions form a FIFO queue. The truck currently under the
+  // cameras/boom is the OLDEST event not yet closed by the barrier step. UHF RFID range can read a
+  // following truck early and open a 2nd transaction; that one stays queued behind. So reads attach
+  // to the oldest open (FIFO), never the latest — picking "latest" would misroute onto a later truck.
   private async findOpenTransaction(): Promise<OpenTransaction> {
     const event = await this.prisma.gateEvent.findFirst({
       where: {
