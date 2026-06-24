@@ -18,8 +18,10 @@ import { TrucksModule } from './modules/trucks/trucks.module';
 import { TruckDriverAssignmentModule } from './modules/truck-driver-assignment/truck-driver-assignment.module';
 import { PlateRecognitionModule } from './modules/plate-recognition/plate-recognition.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { RfidTagsModule } from './modules/rfid-tags/rfid-tags.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
+import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 
 @Module({
   imports: [
@@ -34,7 +36,9 @@ import { ApiKeysModule } from './modules/api-keys/api-keys.module';
     TrucksModule,
     PlateRecognitionModule,
     TransactionsModule,
+    DashboardModule,
     RfidTagsModule,
+    AuditLogsModule,
     ApiKeysModule,
   ],
   controllers: [AppController],

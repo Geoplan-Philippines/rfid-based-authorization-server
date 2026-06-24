@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { TruckDriverAssignmentStatus } from '@prisma/client';
+import { AssignmentRole, TruckDriverAssignmentStatus } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { CreateAssignmentDTO } from './dto/create-assignment.dto';
 import { GetAllAssignmentsQueryDTO } from './dto/get-all-assignments-query.dto';
 import { UpdateAssignmentStatusDTO } from './dto/update-assignment-status.dto';
@@ -12,10 +13,17 @@ import { ASSIGNMENT_INCLUDE } from './constants/assignment-include';
 
 @Injectable()
 export class TruckDriverAssignmentService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
-  async createAssignment(createAssignmentDTO: CreateAssignmentDTO): Promise<TruckDriverAssignmentWithRelations> {
-    const { truckId, driverId } = createAssignmentDTO;
+  async createAssignment(
+    body: CreateAssignmentDTO,
+    actorId?: string,
+  ): Promise<TruckDriverAssignmentWithRelations> {
+    const { truckId, driverId } = body;
+    const role = body.role ?? AssignmentRole.RELIEF;
 
     const [truck, driver] = await Promise.all([
       this.prisma.truck.findUnique({ where: { id: truckId } }),
@@ -24,11 +32,23 @@ export class TruckDriverAssignmentService {
     if (!truck) throw new NotFoundException('Truck not found');
     if (!driver) throw new NotFoundException('Driver not found');
 
-    return this.prisma.truckDriverAssignment.upsert({
-      where: { truckId_driverId: { truckId, driverId } },
-      create: { truckId, driverId },
-      update: { status: TruckDriverAssignmentStatus.ACTIVE },
-      include: ASSIGNMENT_INCLUDE,
+    return this.prisma.$transaction(async (tx) => {
+      const assignment = await tx.truckDriverAssignment.upsert({
+        where: { truckId_driverId: { truckId, driverId } },
+        create: { truckId, driverId, role },
+        update: { status: TruckDriverAssignmentStatus.ACTIVE, role },
+        include: ASSIGNMENT_INCLUDE,
+      });
+
+      await this.auditLogsService.recordAuditLog({
+        actorId,
+        action: 'ASSIGN_TRUCK_DRIVER',
+        entityType: 'TruckDriverAssignment',
+        entityId: `${truckId}:${driverId}`,
+        metadata: { truckId, driverId, role },
+      }, tx);
+
+      return assignment;
     });
   }
 
@@ -56,13 +76,59 @@ export class TruckDriverAssignmentService {
     };
   }
 
-  async updateAssignmentStatus(truckId: string, driverId: string, updateAssignmentStatusDTO: UpdateAssignmentStatusDTO): Promise<TruckDriverAssignmentWithRelations> {
+  async updateAssignmentStatus(
+    truckId: string,
+    driverId: string,
+    body: UpdateAssignmentStatusDTO,
+    actorId?: string,
+  ): Promise<TruckDriverAssignmentWithRelations> {
+    if (!body.status && !body.role) throw new BadRequestException('Status or role is required');
     await this.ensureAssignmentExists(truckId, driverId);
 
-    return this.prisma.truckDriverAssignment.update({
-      where: { truckId_driverId: { truckId, driverId } },
-      data: { status: updateAssignmentStatusDTO.status },
-      include: ASSIGNMENT_INCLUDE,
+    return this.prisma.$transaction(async (tx) => {
+      const assignment = await tx.truckDriverAssignment.update({
+        where: { truckId_driverId: { truckId, driverId } },
+        data: {
+          status: body.status,
+          role: body.role,
+        },
+        include: ASSIGNMENT_INCLUDE,
+      });
+
+      await this.auditLogsService.recordAuditLog({
+        actorId,
+        action: 'UPDATE_TRUCK_DRIVER_ASSIGNMENT',
+        entityType: 'TruckDriverAssignment',
+        entityId: `${truckId}:${driverId}`,
+        metadata: { truckId, driverId, status: body.status ?? null, role: body.role ?? null },
+      }, tx);
+
+      return assignment;
+    });
+  }
+
+  async deleteAssignment(
+    truckId: string,
+    driverId: string,
+    actorId?: string,
+  ): Promise<TruckDriverAssignmentWithRelations> {
+    await this.ensureAssignmentExists(truckId, driverId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const assignment = await tx.truckDriverAssignment.delete({
+        where: { truckId_driverId: { truckId, driverId } },
+        include: ASSIGNMENT_INCLUDE,
+      });
+
+      await this.auditLogsService.recordAuditLog({
+        actorId,
+        action: 'UNASSIGN_TRUCK_DRIVER',
+        entityType: 'TruckDriverAssignment',
+        entityId: `${truckId}:${driverId}`,
+        metadata: { truckId, driverId, role: assignment.role },
+      }, tx);
+
+      return assignment;
     });
   }
 

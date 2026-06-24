@@ -1,4 +1,5 @@
 import { GateEventResult, Prisma, RFIDTagStatus, SnapshotType, TimelineEventType, TruckDriverAssignmentStatus } from '@prisma/client';
+import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
 
 // Prisma payload shapes (single source of truth for what the service queries).
 
@@ -60,6 +61,14 @@ export interface TransactionListItem {
   driver: DriverSummary | null;
   // True while the transaction is still mid-pipeline (not terminal, barrier not yet opened).
   isOpen: boolean;
+}
+
+export type TransactionResultCounts = Record<GateEventResult, number>;
+
+export interface TransactionListResponse extends PaginatedResponse<TransactionListItem> {
+  meta: PaginatedResponse<TransactionListItem>['meta'] & {
+    counts: TransactionResultCounts;
+  };
 }
 
 export interface TransactionTimelineEvent {

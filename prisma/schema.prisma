@@ -43,6 +43,9 @@ model Driver {
   id                            String                    @id @default(uuid())
   firstName                     String                    @map("first_name")
   lastName                      String                    @map("last_name")
+  licenseNumber                 String                    @unique @map("license_number")
+  photoUrl                      String?                   @map("photo_url")
+  isArchived                    Boolean                   @default(false) @map("is_archived")
 
   createdAt                     DateTime                  @default(now()) @map("created_at")
   updatedAt                     DateTime                  @updatedAt @map("updated_at")
@@ -58,6 +61,7 @@ model Truck {
   id                            String                    @id @default(uuid())
   plateNumber                   String                    @unique @map("plate_number")
   model                         String
+  photoUrl                      String?                   @map("photo_url")
   isArchived                    Boolean                   @default(false) @map("is_archived")
 
   createdAt                     DateTime                  @default(now()) @map("created_at")
@@ -72,6 +76,7 @@ model Truck {
 
 model TruckDriverAssignment {
   status                        TruckDriverAssignmentStatus    @default(ACTIVE)
+  role                          AssignmentRole                 @default(RELIEF)
 
   truckId                       String                         @map("truck_id")
   truck                         Truck                          @relation(fields: [truckId], references: [id], onDelete: Cascade)
@@ -99,8 +104,40 @@ model RFIDTag {
   updatedAt                     DateTime                  @updatedAt @map("updated_at")
 
   gateEvents                    GateEvent[]
+  statusHistory                 RFIDTagStatusHistory[]
 
   @@map("rfid_tags")
+}
+
+model RFIDTagStatusHistory {
+  id                            String                    @id @default(uuid())
+  fromStatus                    RFIDTagStatus?            @map("from_status")
+  toStatus                      RFIDTagStatus             @map("to_status")
+  reason                        String?
+  changedById                   String?                   @map("changed_by_id")
+
+  rfidTagId                     String                    @map("rfid_tag_id")
+  rfidTag                       RFIDTag                   @relation(fields: [rfidTagId], references: [id], onDelete: Cascade)
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  @@index([rfidTagId])
+  @@map("rfid_tag_status_history")
+}
+
+model AuditLog {
+  id                            String                    @id @default(uuid())
+  actorId                       String?                   @map("actor_id")
+  action                        String
+  entityType                    String                    @map("entity_type")
+  entityId                      String                    @map("entity_id")
+  metadata                      Json?
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }
 
 model EventVerification {
@@ -198,12 +235,18 @@ enum RFIDTagStatus {
   INACTIVE
   LOST
   BLOCKED
+  RETIRED
 }
 
 enum TruckDriverAssignmentStatus {
   ACTIVE
   REVOKED
   EXPIRED
+}
+
+enum AssignmentRole {
+  PRIMARY
+  RELIEF
 }
 
 enum GateEventResult {

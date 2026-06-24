@@ -1,15 +1,16 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { GateEventResult, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { GateEventResult, Prisma, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
-import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
+import { EmailService } from '../email/email.service';
+import { env } from 'src/core/config/env.config';
 import { GetAllTransactionsQueryDTO } from './dto/get-all-transactions-query.dto';
 import { RecordRfidReadDTO } from './dto/record-rfid-read.dto';
 import { RecordPlateReadDTO } from './dto/record-plate-read.dto';
 import { RecordFaceReadDTO } from './dto/record-face-read.dto';
 import { RecordBarrierEventDTO } from './dto/record-barrier-event.dto';
 import { AuthenticatedUser } from '../auth/types/auth.types';
-import { OpenTransaction, TransactionDetail, TransactionListItem, openTransactionInclude, transactionDetailInclude, transactionListInclude } from './types/transactions.types';
+import { OpenTransaction, TransactionDetail, TransactionListResponse, TransactionResultCounts, openTransactionInclude, transactionDetailInclude, transactionListInclude } from './types/transactions.types';
 import { toTransactionDetail, toTransactionListItem } from './transactions.mapper';
 import { TERMINAL_RESULTS } from './transactions.policy';
 
@@ -22,19 +23,28 @@ const PLACEHOLDER_SNAPSHOT_URL = 'https://placeholder.local/snapshot.jpg'; // TO
 
 @Injectable()
 export class TransactionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(TransactionsService.name);
 
-  async getAllTransactions(query: GetAllTransactionsQueryDTO): Promise<PaginatedResponse<TransactionListItem>> {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emailService: EmailService,
+  ) {}
+
+  async getAllTransactions(query: GetAllTransactionsQueryDTO): Promise<TransactionListResponse> {
     const { page, limit } = query;
+    const where = this.buildListWhere(query);
+    const countsWhere = this.buildListWhere(query, { includeResult: false });
 
-    const [events, total] = await Promise.all([
+    const [events, total, counts] = await Promise.all([
       this.prisma.gateEvent.findMany({
+        where,
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { occurredAt: 'desc' },
         include: transactionListInclude,
       }),
-      this.prisma.gateEvent.count(),
+      this.prisma.gateEvent.count({ where }),
+      this.getResultCounts(countsWhere),
     ]);
 
     return {
@@ -44,6 +54,7 @@ export class TransactionsService {
         page,
         limit,
         lastPage: Math.ceil(total / limit),
+        counts,
       },
     };
   }
@@ -247,20 +258,85 @@ export class TransactionsService {
       this.prisma.eventVerification.update({ where: { gateEventId: event.id }, data: { verifiedAt: now } }),
     ]);
 
-    return this.getTransactionById(event.id);
+    // The transaction is now complete (barrier opened). Alert reviewers if it closed on a
+    // non-VERIFIED result — the email then reflects the final state, including any override.
+    const detail = await this.getTransactionById(event.id);
+    this.dispatchTransactionAlert(detail);
+    return detail;
   }
 
   // --- Pipeline helpers ------------------------------------------------------
 
-  // The open transaction is the most recent verifiable event not yet closed by the barrier step.
-  // For a single gate only one truck is at the barrier at a time, so "latest open" is unambiguous.
+  private buildListWhere(query: GetAllTransactionsQueryDTO, options: { includeResult?: boolean } = {}): Prisma.GateEventWhereInput {
+    const includeResult = options.includeResult ?? true;
+    const filters: Prisma.GateEventWhereInput[] = [];
+    const search = query.search?.trim();
+
+    if (search) {
+      filters.push({
+        OR: [
+          { eventCode: { contains: search, mode: 'insensitive' } },
+          { plateNumberRead: { contains: search, mode: 'insensitive' } },
+          { rfidTag: { is: { epcId: { contains: search, mode: 'insensitive' } } } },
+          { truck: { is: { plateNumber: { contains: search, mode: 'insensitive' } } } },
+        ],
+      });
+    }
+
+    if (includeResult && query.result) {
+      filters.push({ result: query.result });
+    }
+
+    return filters.length > 0 ? { AND: filters } : {};
+  }
+
+  private async getResultCounts(where: Prisma.GateEventWhereInput): Promise<TransactionResultCounts> {
+    const groupedCounts = await this.prisma.gateEvent.groupBy({
+      by: ['result'],
+      where,
+      _count: { _all: true },
+    });
+
+    const counts = Object.values(GateEventResult).reduce((acc, result) => {
+      acc[result] = 0;
+      return acc;
+    }, {} as TransactionResultCounts);
+
+    for (const group of groupedCounts) {
+      counts[group.result] = group._count._all;
+    }
+
+    return counts;
+  }
+
+  // Fire-and-forget alert email. Email is a side effect of completing the transaction, so a Resend
+  // failure (or no configured recipients) must never fail the request — errors are logged instead.
+  private dispatchTransactionAlert(transaction: TransactionDetail): void {
+    if (transaction.result === GateEventResult.VERIFIED) return;
+
+    const recipients = env.TRANSACTION_ALERT_RECIPIENTS;
+    if (recipients.length === 0) {
+      this.logger.warn(`No TRANSACTION_ALERT_RECIPIENTS configured; skipping alert for ${transaction.eventCode}`);
+      return;
+    }
+
+    this.logger.log(`Sending transaction alert for ${transaction.eventCode} (${transaction.result}) to ${recipients.join(', ')}`);
+    void this.emailService
+      .sendTransactionAlert({ to: recipients, transaction })
+      .catch((error) => this.logger.error(`Transaction alert failed for ${transaction.eventCode}`, error instanceof Error ? error.stack : String(error)));
+  }
+
+  // Single-file lane: open transactions form a FIFO queue. The truck currently under the
+  // cameras/boom is the OLDEST event not yet closed by the barrier step. UHF RFID range can read a
+  // following truck early and open a 2nd transaction; that one stays queued behind. So reads attach
+  // to the oldest open (FIFO), never the latest — picking "latest" would misroute onto a later truck.
   private async findOpenTransaction(): Promise<OpenTransaction> {
     const event = await this.prisma.gateEvent.findFirst({
       where: {
         result: { notIn: TERMINAL_RESULTS },
         timeline: { none: { type: TimelineEventType.BARRIER_OPENED } },
       },
-      orderBy: { occurredAt: 'desc' },
+      orderBy: { occurredAt: 'asc' },
       include: openTransactionInclude,
     });
 
@@ -283,14 +359,19 @@ export class TransactionsService {
   }
 
   // Daily sequence: GATE-YYYYMMDD-NNNN. Best-effort; eventCode is unique, so a concurrent
-  // collision surfaces as a Prisma error rather than a duplicate.
+  // collision surfaces as a Prisma error rather than a duplicate. Both the date and the count
+  // window use the server's local day (matching DashboardService day bucketing); using UTC for
+  // the date would print tomorrow's date for late-night passes while the count resets locally.
   private async generateEventCode(occurredAt: Date): Promise<string> {
     const startOfDay = new Date(occurredAt);
     startOfDay.setHours(0, 0, 0, 0);
 
     const countToday = await this.prisma.gateEvent.count({ where: { occurredAt: { gte: startOfDay } } });
 
-    const datePart = occurredAt.toISOString().slice(0, 10).replace(/-/g, '');
+    const year = occurredAt.getFullYear();
+    const month = String(occurredAt.getMonth() + 1).padStart(2, '0');
+    const day = String(occurredAt.getDate()).padStart(2, '0');
+    const datePart = `${year}${month}${day}`;
     const sequence = String(countToday + 1).padStart(4, '0');
     return `GATE-${datePart}-${sequence}`;
   }

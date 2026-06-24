@@ -8,4 +8,8 @@ export class CreateDriverDTO {
   @IsString()
   @IsNotEmpty()
   lastName!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  licenseNumber!: string;
 }

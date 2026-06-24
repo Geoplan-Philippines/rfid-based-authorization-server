@@ -1,50 +1,98 @@
-import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
-
+import {
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Driver } from '@prisma/client';
 
+import { IMAGE_UPLOAD_OPTIONS } from 'src/common/uploads/image-upload.constants';
 import { CreateDriverDTO } from './dto/create-driver.dto';
 import { GetAllDriversQueryDTO } from './dto/get-all-drivers-query.dto';
+import { UpdateDriverDTO } from './dto/update-driver.dto';
 import { DriversService } from './drivers.service';
-import { DriverWithRelations } from './types/drivers.types';
-import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
+import { DriverDetail, DriverListResponse, DriverWithTrucks } from './types/drivers.types';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PassportJwtGuard } from '../auth/guards/passport-jwt.guard';
+import type { AuthenticatedUser } from '../auth/types/auth.types';
 
 // TODO: Apply RolesGuard and @Roles() decorator to all routes
 @Controller('drivers')
+@UseGuards(PassportJwtGuard)
 export class DriversController {
   constructor(private readonly driversService: DriversService) {}
 
   @Post()
-  @UseGuards(PassportJwtGuard)
-  createDriver(@Body() createDriverDTO: CreateDriverDTO): Promise<Driver> {
-    return this.driversService.createDriver(createDriverDTO);
+  async createDriver(
+    @Body() body: CreateDriverDTO,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<Driver> {
+    return this.driversService.createDriver(body, user.id);
   }
 
   @Get()
-  @UseGuards(PassportJwtGuard)
-  getAllDrivers(@Query() query: GetAllDriversQueryDTO): Promise<PaginatedResponse<Driver>> {
+  async getAllDrivers(@Query() query: GetAllDriversQueryDTO): Promise<DriverListResponse> {
     return this.driversService.getAllDrivers(query);
   }
 
   @Get('with-trucks')
-  @UseGuards(PassportJwtGuard)
-  getAllDriversWithTrucks(): Promise<DriverWithRelations[]> {
+  async getAllDriversWithTrucks(): Promise<DriverWithTrucks[]> {
     return this.driversService.getAllDriversWithTrucks();
   }
 
   @Get(':id/with-trucks')
-  @UseGuards(PassportJwtGuard)
-  async getDriverWithTrucksById(@Param('id', ParseUUIDPipe) id: string): Promise<DriverWithRelations> {
+  async getDriverWithTrucksById(@Param('id', ParseUUIDPipe) id: string): Promise<DriverWithTrucks> {
     const driver = await this.driversService.getDriverWithTrucksById(id);
     if (!driver) throw new NotFoundException('Driver not found');
     return driver;
   }
 
   @Get(':id')
-  @UseGuards(PassportJwtGuard)
-  async findDriverById(@Param('id', ParseUUIDPipe) id: string): Promise<Driver> {
-    const driver = await this.driversService.findDriverById(id);
-    if (!driver) throw new NotFoundException('Driver not found');
-    return driver;
+  async getDriverById(@Param('id', ParseUUIDPipe) id: string): Promise<DriverDetail> {
+    return this.driversService.getDriverById(id);
+  }
+
+  @Patch(':id')
+  async updateDriver(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateDriverDTO,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<Driver> {
+    return this.driversService.updateDriver(id, body, user.id);
+  }
+
+  @Post(':id/archive')
+  async archiveDriver(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<Driver> {
+    return this.driversService.archiveDriver(id, user.id);
+  }
+
+  @Post(':id/restore')
+  async restoreDriver(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<Driver> {
+    return this.driversService.restoreDriver(id, user.id);
+  }
+
+  @Post(':id/photo')
+  @UseInterceptors(FileInterceptor('photo', IMAGE_UPLOAD_OPTIONS))
+  async saveDriverPhoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() photo: Express.Multer.File | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<Driver> {
+    return this.driversService.saveDriverPhoto(id, photo, user.id);
   }
 }

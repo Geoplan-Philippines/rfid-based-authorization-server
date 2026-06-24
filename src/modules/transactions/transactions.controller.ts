@@ -6,8 +6,7 @@ import { RecordRfidReadDTO } from './dto/record-rfid-read.dto';
 import { RecordPlateReadDTO } from './dto/record-plate-read.dto';
 import { RecordFaceReadDTO } from './dto/record-face-read.dto';
 import { RecordBarrierEventDTO } from './dto/record-barrier-event.dto';
-import { TransactionDetail, TransactionListItem } from './types/transactions.types';
-import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
+import { TransactionDetail, TransactionListResponse } from './types/transactions.types';
 import { PassportJwtGuard } from '../auth/guards/passport-jwt.guard';
 import { ApiKeyGuard } from '../api-keys/guards/api-key.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -22,8 +21,8 @@ export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
 
   @Get()
-  @UseGuards(PassportJwtGuard)
-  async getAllTransactions(@Query() query: GetAllTransactionsQueryDTO): Promise<PaginatedResponse<TransactionListItem>> {
+  // @UseGuards(PassportJwtGuard)
+  async getAllTransactions(@Query() query: GetAllTransactionsQueryDTO): Promise<TransactionListResponse> {
     return this.transactionsService.getAllTransactions(query);
   }
 
@@ -42,14 +41,12 @@ export class TransactionsController {
 
   // Stage 2 — plate-recognition (OCR) service. Patches the latest open transaction.
   @Post('plate-reads')
-  @UseGuards(ApiKeyGuard)
   async recordPlateRead(@Body() body: RecordPlateReadDTO): Promise<TransactionDetail> {
     return this.transactionsService.recordPlateRead(body);
   }
 
   // Stage 3 — face-recognition service. Patches the latest open transaction.
   @Post('face-reads')
-  @UseGuards(ApiKeyGuard)
   async recordFaceRead(@Body() body: RecordFaceReadDTO): Promise<TransactionDetail> {
     return this.transactionsService.recordFaceRead(body);
   }
