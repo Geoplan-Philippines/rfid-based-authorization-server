@@ -1,13 +1,5 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { PartialType } from '@nestjs/mapped-types';
 
-export class UpdateTruckDTO {
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  plateNumber?: string;
+import { CreateTruckDTO } from './create-truck.dto';
 
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  model?: string;
-}
+export class UpdateTruckDTO extends PartialType(CreateTruckDTO) {}

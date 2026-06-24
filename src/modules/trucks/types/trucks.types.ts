@@ -1,7 +1,8 @@
-import { AssignmentRole, GateEventResult, Prisma, RFIDTagStatus } from '@prisma/client';
+import type { AssignmentRole, GateEventResult, Prisma, RFIDTagStatus } from '@prisma/client';
 
-import { RecentGateEvent } from 'src/common/gate-events/gate-event-analytics.service';
-import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
+import type { RecentGateEvent } from 'src/common/gate-events/gate-event-analytics.service';
+import type { PaginatedResponse } from 'src/common/responses/paginated-api.response';
+import type { TRUCK_DETAIL_INCLUDE, TRUCK_LIST_INCLUDE, TRUCK_WITH_DRIVERS_INCLUDE, UNTAGGED_TRUCK_SELECT } from '../constants/trucks.constants';
 
 export interface TruckDriverListSummary {
   id: string;
@@ -52,6 +53,8 @@ export interface TruckDetail {
   createdAt: Date;
 }
 
+export type TruckUntaggedItem = Prisma.TruckGetPayload<{ select: typeof UNTAGGED_TRUCK_SELECT }>;
+
 export interface TruckListResponse extends PaginatedResponse<TruckListItem> {
   meta: PaginatedResponse<TruckListItem>['meta'] & {
     counts: {
@@ -60,10 +63,6 @@ export interface TruckListResponse extends PaginatedResponse<TruckListItem> {
   };
 }
 
-export const truckWithDriversInclude = {
-  driverAssignments: {
-    include: { driver: true },
-  },
-} satisfies Prisma.TruckInclude;
-
-export type TruckWithDrivers = Prisma.TruckGetPayload<{ include: typeof truckWithDriversInclude }>;
+export type TruckListPayload = Prisma.TruckGetPayload<{ include: typeof TRUCK_LIST_INCLUDE }>;
+export type TruckDetailPayload = Prisma.TruckGetPayload<{ include: typeof TRUCK_DETAIL_INCLUDE }>;
+export type TruckWithDrivers = Prisma.TruckGetPayload<{ include: typeof TRUCK_WITH_DRIVERS_INCLUDE }>;

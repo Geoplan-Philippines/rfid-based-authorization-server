@@ -359,14 +359,19 @@ export class TransactionsService {
   }
 
   // Daily sequence: GATE-YYYYMMDD-NNNN. Best-effort; eventCode is unique, so a concurrent
-  // collision surfaces as a Prisma error rather than a duplicate.
+  // collision surfaces as a Prisma error rather than a duplicate. Both the date and the count
+  // window use the server's local day (matching DashboardService day bucketing); using UTC for
+  // the date would print tomorrow's date for late-night passes while the count resets locally.
   private async generateEventCode(occurredAt: Date): Promise<string> {
     const startOfDay = new Date(occurredAt);
     startOfDay.setHours(0, 0, 0, 0);
 
     const countToday = await this.prisma.gateEvent.count({ where: { occurredAt: { gte: startOfDay } } });
 
-    const datePart = occurredAt.toISOString().slice(0, 10).replace(/-/g, '');
+    const year = occurredAt.getFullYear();
+    const month = String(occurredAt.getMonth() + 1).padStart(2, '0');
+    const day = String(occurredAt.getDate()).padStart(2, '0');
+    const datePart = `${year}${month}${day}`;
     const sequence = String(countToday + 1).padStart(4, '0');
     return `GATE-${datePart}-${sequence}`;
   }

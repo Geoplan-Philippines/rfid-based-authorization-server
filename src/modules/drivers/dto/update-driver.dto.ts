@@ -1,18 +1,5 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { PartialType } from '@nestjs/mapped-types';
 
-export class UpdateDriverDTO {
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  firstName?: string;
+import { CreateDriverDTO } from './create-driver.dto';
 
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  lastName?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  licenseNumber?: string;
-}
+export class UpdateDriverDTO extends PartialType(CreateDriverDTO) {}

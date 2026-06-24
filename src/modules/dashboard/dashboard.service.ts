@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../core/database/prisma.service';
-import { NEEDS_REVIEW_PREVIEW_LIMIT } from './constants/dashboard.constants';
+import { DASHBOARD_MAX_DAILY_EVENTS, NEEDS_REVIEW_PREVIEW_LIMIT } from './constants/dashboard.constants';
 import {
   buildHourlyThroughput,
   computeAvgPassTime,
@@ -30,6 +30,7 @@ export class DashboardService {
         where: { occurredAt: { gte: dayStart, lt: dayEnd } },
         orderBy: { occurredAt: 'desc' },
         select: dashboardEventSelect,
+        take: DASHBOARD_MAX_DAILY_EVENTS,
       }),
       this.prisma.gateEvent.count({
         where: { occurredAt: { gte: previousDayStart, lt: dayStart } },

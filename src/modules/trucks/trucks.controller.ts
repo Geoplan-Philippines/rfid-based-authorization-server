@@ -1,16 +1,16 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Truck } from '@prisma/client';
+import type { Truck } from '@prisma/client';
 
 import { IMAGE_UPLOAD_OPTIONS } from 'src/common/uploads/image-upload.constants';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PassportJwtGuard } from '../auth/guards/passport-jwt.guard';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
-import { GetAllTrucksQueryDTO } from './dto/get-all-trucks-query.dto';
 import { CreateTruckDTO } from './dto/create-truck.dto';
+import { GetAllTrucksQueryDTO } from './dto/get-all-trucks-query.dto';
 import { UpdateTruckDTO } from './dto/update-truck.dto';
 import { TrucksService } from './trucks.service';
-import { TruckDetail, TruckListResponse, TruckWithDrivers } from './types/trucks.types';
+import type { TruckDetail, TruckListResponse, TruckUntaggedItem, TruckWithDrivers } from './types/trucks.types';
 
 // TODO: Apply RolesGuard and @Roles() decorator to all routes
 @Controller('trucks')
@@ -34,6 +34,11 @@ export class TrucksController {
   @Get('with-drivers')
   async getAllTrucksWithDrivers(): Promise<TruckWithDrivers[]> {
     return this.trucksService.getAllTrucksWithDrivers();
+  }
+
+  @Get('untagged')
+  async getUntaggedTrucks(): Promise<TruckUntaggedItem[]> {
+    return this.trucksService.getUntaggedTrucks();
   }
 
   @Get(':id')

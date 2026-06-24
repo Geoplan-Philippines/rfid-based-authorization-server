@@ -3,13 +3,16 @@ import { Prisma, Truck, TruckDriverAssignmentStatus } from '@prisma/client';
 
 import { GateEventAnalyticsService } from 'src/common/gate-events/gate-event-analytics.service';
 import { ImageUploadService } from 'src/common/uploads/image-upload.service';
-import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
 import { PrismaService } from '../../core/database/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { TRUCK_AUDIT_ACTION, TRUCK_DETAIL_INCLUDE, TRUCK_ENTITY_TYPE, TRUCK_LIST_INCLUDE, TRUCK_WITH_DRIVERS_INCLUDE, TruckAuditAction, UNTAGGED_TRUCK_SELECT } from './constants/trucks.constants';
 import { CreateTruckDTO } from './dto/create-truck.dto';
 import { GetAllTrucksQueryDTO } from './dto/get-all-trucks-query.dto';
 import { UpdateTruckDTO } from './dto/update-truck.dto';
-import { TruckDetail, TruckListItem, TruckListResponse, TruckWithDrivers, truckWithDriversInclude } from './types/trucks.types';
+import { mapTruckToDetail, mapTruckToListItem } from './trucks.mapper';
+import type { TruckDetail, TruckListResponse, TruckUntaggedItem, TruckWithDrivers } from './types/trucks.types';
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class TrucksService {
@@ -23,20 +26,14 @@ export class TrucksService {
   async createTruck(body: CreateTruckDTO, actorId?: string): Promise<Truck> {
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const truck = await tx.truck.create({
-          data: {
-            plateNumber: this.normalizePlateNumber(body.plateNumber),
-            model: body.model.trim(),
-          },
-        });
+        const truck = await tx.truck.create({ data: this.buildTruckCreateData(body) });
 
-        await this.auditLogsService.recordAuditLog({
+        await this.recordTruckAuditLog(tx, {
           actorId,
-          action: 'CREATE_TRUCK',
-          entityType: 'Truck',
+          action: TRUCK_AUDIT_ACTION.create,
           entityId: truck.id,
           metadata: { plateNumber: truck.plateNumber },
-        }, tx);
+        });
 
         return truck;
       });
@@ -56,14 +53,7 @@ export class TrucksService {
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: {
-          rfidTag: true,
-          driverAssignments: {
-            where: { status: TruckDriverAssignmentStatus.ACTIVE },
-            orderBy: { createdAt: 'desc' },
-            include: { driver: true },
-          },
-        },
+        include: TRUCK_LIST_INCLUDE,
       }),
       this.prisma.truck.count({ where }),
       this.prisma.truck.count({
@@ -81,26 +71,7 @@ export class TrucksService {
     );
 
     return {
-      data: trucks.map((truck): TruckListItem => {
-        const summary = summaries[truck.id];
-
-        return {
-          id: truck.id,
-          plateNumber: truck.plateNumber,
-          model: truck.model,
-          photoUrl: truck.photoUrl,
-          isArchived: truck.isArchived,
-          drivers: truck.driverAssignments.map((assignment) => ({
-            id: assignment.driver.id,
-            name: this.formatDriverName(assignment.driver.firstName, assignment.driver.lastName),
-            role: assignment.role,
-          })),
-          driversCount: truck.driverAssignments.length,
-          boundTag: truck.rfidTag ? { epcId: truck.rfidTag.epcId, status: truck.rfidTag.status } : null,
-          events30d: summary.events30d,
-          lastEventAt: summary.lastEventAt,
-        };
-      }),
+      data: trucks.map((truck) => mapTruckToListItem(truck, summaries[truck.id])),
       meta: {
         total,
         page,
@@ -114,7 +85,15 @@ export class TrucksService {
   async getAllTrucksWithDrivers(): Promise<TruckWithDrivers[]> {
     return this.prisma.truck.findMany({
       orderBy: { createdAt: 'desc' },
-      include: truckWithDriversInclude,
+      include: TRUCK_WITH_DRIVERS_INCLUDE,
+    });
+  }
+
+  async getUntaggedTrucks(): Promise<TruckUntaggedItem[]> {
+    return this.prisma.truck.findMany({
+      where: { isArchived: false, rfidTag: { is: null } },
+      orderBy: { plateNumber: 'asc' },
+      select: UNTAGGED_TRUCK_SELECT,
     });
   }
 
@@ -125,14 +104,7 @@ export class TrucksService {
   async getTruckById(id: string): Promise<TruckDetail> {
     const truck = await this.prisma.truck.findUnique({
       where: { id },
-      include: {
-        rfidTag: true,
-        driverAssignments: {
-          where: { status: TruckDriverAssignmentStatus.ACTIVE },
-          orderBy: { createdAt: 'desc' },
-          include: { driver: true },
-        },
-      },
+      include: TRUCK_DETAIL_INCLUDE,
     });
 
     if (!truck) throw new NotFoundException('Truck not found');
@@ -141,30 +113,8 @@ export class TrucksService {
       this.gateEventAnalyticsService.getTruckGateEventSummaries([truck.id]),
       this.gateEventAnalyticsService.getRecentTruckGateEvents(truck.id),
     ]);
-    const summary = summaries[truck.id];
 
-    return {
-      id: truck.id,
-      plateNumber: truck.plateNumber,
-      model: truck.model,
-      photoUrl: truck.photoUrl,
-      isArchived: truck.isArchived,
-      status: truck.isArchived ? 'ARCHIVED' : 'ACTIVE',
-      drivers: truck.driverAssignments.map((assignment) => ({
-        id: assignment.driver.id,
-        name: this.formatDriverName(assignment.driver.firstName, assignment.driver.lastName),
-        licenseNumber: assignment.driver.licenseNumber,
-        role: assignment.role,
-        since: assignment.createdAt,
-        photoUrl: assignment.driver.photoUrl,
-      })),
-      boundTag: truck.rfidTag ? { epcId: truck.rfidTag.epcId, status: truck.rfidTag.status } : null,
-      events30d: summary.events30d,
-      lastEventAt: summary.lastEventAt,
-      lastResult: summary.lastResult,
-      recentGateEvents,
-      createdAt: truck.createdAt,
-    };
+    return mapTruckToDetail(truck, summaries[truck.id], recentGateEvents);
   }
 
   async updateTruck(id: string, body: UpdateTruckDTO, actorId?: string): Promise<Truck> {
@@ -177,13 +127,12 @@ export class TrucksService {
       return await this.prisma.$transaction(async (tx) => {
         const truck = await tx.truck.update({ where: { id }, data });
 
-        await this.auditLogsService.recordAuditLog({
+        await this.recordTruckAuditLog(tx, {
           actorId,
-          action: 'UPDATE_TRUCK',
-          entityType: 'Truck',
+          action: TRUCK_AUDIT_ACTION.update,
           entityId: truck.id,
           metadata: { fields: Object.keys(data) },
-        }, tx);
+        });
 
         return truck;
       });
@@ -194,37 +143,11 @@ export class TrucksService {
   }
 
   async archiveTruck(id: string, actorId?: string): Promise<Truck> {
-    await this.ensureTruckExists(id);
-
-    return this.prisma.$transaction(async (tx) => {
-      const truck = await tx.truck.update({ where: { id }, data: { isArchived: true } });
-
-      await this.auditLogsService.recordAuditLog({
-        actorId,
-        action: 'ARCHIVE_TRUCK',
-        entityType: 'Truck',
-        entityId: truck.id,
-      }, tx);
-
-      return truck;
-    });
+    return this.updateTruckArchivedState(id, true, TRUCK_AUDIT_ACTION.archive, actorId);
   }
 
   async restoreTruck(id: string, actorId?: string): Promise<Truck> {
-    await this.ensureTruckExists(id);
-
-    return this.prisma.$transaction(async (tx) => {
-      const truck = await tx.truck.update({ where: { id }, data: { isArchived: false } });
-
-      await this.auditLogsService.recordAuditLog({
-        actorId,
-        action: 'RESTORE_TRUCK',
-        entityType: 'Truck',
-        entityId: truck.id,
-      }, tx);
-
-      return truck;
-    });
+    return this.updateTruckArchivedState(id, false, TRUCK_AUDIT_ACTION.restore, actorId);
   }
 
   async saveTruckPhoto(id: string, file: Express.Multer.File | undefined, actorId?: string): Promise<Truck> {
@@ -234,13 +157,33 @@ export class TrucksService {
     return this.prisma.$transaction(async (tx) => {
       const truck = await tx.truck.update({ where: { id }, data: { photoUrl } });
 
-      await this.auditLogsService.recordAuditLog({
+      await this.recordTruckAuditLog(tx, {
         actorId,
-        action: 'UPLOAD_TRUCK_PHOTO',
-        entityType: 'Truck',
+        action: TRUCK_AUDIT_ACTION.uploadPhoto,
         entityId: truck.id,
         metadata: { photoUrl },
-      }, tx);
+      });
+
+      return truck;
+    });
+  }
+
+  private async updateTruckArchivedState(
+    id: string,
+    isArchived: boolean,
+    action: TruckAuditAction,
+    actorId?: string,
+  ): Promise<Truck> {
+    await this.ensureTruckExists(id);
+
+    return this.prisma.$transaction(async (tx) => {
+      const truck = await tx.truck.update({ where: { id }, data: { isArchived } });
+
+      await this.recordTruckAuditLog(tx, {
+        actorId,
+        action,
+        entityId: truck.id,
+      });
 
       return truck;
     });
@@ -253,16 +196,24 @@ export class TrucksService {
     if (!query.includeArchived) filters.push({ isArchived: false });
 
     if (search) {
-      filters.push({
-        OR: [
-          { id: search },
-          { plateNumber: { contains: search, mode: 'insensitive' } },
-          { model: { contains: search, mode: 'insensitive' } },
-        ],
-      });
+      const searchableFields: Prisma.TruckWhereInput[] = [
+        { plateNumber: { contains: search, mode: 'insensitive' } },
+        { model: { contains: search, mode: 'insensitive' } },
+      ];
+
+      if (UUID_PATTERN.test(search)) searchableFields.unshift({ id: search });
+
+      filters.push({ OR: searchableFields });
     }
 
     return filters.length > 0 ? { AND: filters } : {};
+  }
+
+  private buildTruckCreateData(body: CreateTruckDTO): Prisma.TruckCreateInput {
+    return {
+      plateNumber: this.normalizePlateNumber(body.plateNumber),
+      model: body.model.trim(),
+    };
   }
 
   private buildTruckUpdateData(body: UpdateTruckDTO): Prisma.TruckUpdateInput {
@@ -279,17 +230,26 @@ export class TrucksService {
     if (!truck) throw new NotFoundException('Truck not found');
   }
 
+  private async recordTruckAuditLog(
+    tx: Prisma.TransactionClient,
+    input: { actorId?: string; action: TruckAuditAction; entityId: string; metadata?: Prisma.InputJsonValue },
+  ): Promise<void> {
+    await this.auditLogsService.recordAuditLog({
+      actorId: input.actorId,
+      action: input.action,
+      entityType: TRUCK_ENTITY_TYPE,
+      entityId: input.entityId,
+      metadata: input.metadata,
+    }, tx);
+  }
+
   private throwTruckConflict(error: unknown): void {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      throw new ConflictException('Truck with the same plate number already exists');
-    }
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return;
+
+    throw new ConflictException('Truck with the same plate number already exists');
   }
 
   private normalizePlateNumber(value: string): string {
     return value.trim().toUpperCase();
-  }
-
-  private formatDriverName(firstName: string, lastName: string): string {
-    return `${firstName} ${lastName}`;
   }
 }

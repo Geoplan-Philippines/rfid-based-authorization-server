@@ -15,6 +15,11 @@ export const EXCEPTION_GATE_RESULTS: GateEventResult[] = [
 // transactions list (the panel's "View all transactions" link).
 export const NEEDS_REVIEW_PREVIEW_LIMIT = 8;
 
+// Defensive ceiling on the single-day window the overview loads into memory. A single gate
+// realistically produces hundreds of events per day, so this never truncates normal traffic; it
+// only caps memory on a pathological day. Hitting it is the signal to push aggregation into the DB.
+export const DASHBOARD_MAX_DAILY_EVENTS = 5000;
+
 export const HOURS_PER_DAY = 24;
 
 const EXCEPTION_RESULT_SET = new Set<GateEventResult>(EXCEPTION_GATE_RESULTS);
