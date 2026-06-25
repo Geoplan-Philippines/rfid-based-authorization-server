@@ -129,13 +129,16 @@ export class TransactionsService {
       throw new ConflictException('Plate read already recorded for this transaction');
     }
 
-    const truckPlate = event.truck!.plateNumber;
-    const plateMatched = body.plateNumberRead === truckPlate;
+    // No bound truck (unknown tag) → there is no plate to compare against, so this is never a match.
+    const plateMatched = event.truck ? body.plateNumberRead === event.truck.plateNumber : false;
 
+    // Recompute from the real tag state so a flagged transaction keeps its result through this
+    // stage: an unknown tag stays UNKNOWN_TAG and a deactivated tag stays DENIED. Only the barrier
+    // override closes it.
     const now = new Date();
     const result = this.resolveGateEventResult({
-      rfidMatched: true,
-      tagActive: true,
+      rfidMatched: event.rfidTag !== null,
+      tagActive: event.rfidTag?.status === RFIDTagStatus.ACTIVE,
       plateMatched,
       faceMatched: event.verification?.faceMatched ?? null,
     });
@@ -172,7 +175,9 @@ export class TransactionsService {
   }
 
   // Stage 3 — face-recognition service reports the identified driver. Patches the latest open
-  // transaction. The backend computes the match against the truck's assigned driver.
+  // transaction; the backend computes the match against the truck's assigned driver. This is the
+  // final pipeline stage: on a valid (matched + active) tag it also opens the barrier automatically
+  // (RFID-only policy), closing the transaction. An invalid tag is left open for a manual override.
   async recordFaceRead(body: RecordFaceReadDTO): Promise<TransactionDetail> {
     const event = await this.findOpenTransaction();
     // Idempotency: the face stage runs once. A retry (already-stamped verification) is rejected
@@ -181,7 +186,7 @@ export class TransactionsService {
       throw new ConflictException('Face read already recorded for this transaction');
     }
 
-    const assignedDriverId = event.truck!.driverAssignments[0]?.driverId ?? null;
+    const assignedDriverId = event.truck?.driverAssignments[0]?.driverId ?? null;
 
     if (body.driverId) {
       const driver = await this.prisma.driver.findUnique({ where: { id: body.driverId } });
@@ -192,13 +197,25 @@ export class TransactionsService {
     // (no driverId) is a non-match.
     const faceMatched = body.driverId !== undefined && body.driverId === assignedDriverId;
 
+    // The result is recomputed from the real tag state so a flagged transaction (unknown or
+    // deactivated tag) keeps its result. A valid (matched + active) tag is the RFID-only auto-open
+    // trigger: this is the final pipeline stage, so once the face read lands the barrier opens
+    // automatically — even on a plate/face mismatch (the result is left flagged for review). An
+    // unknown/deactivated tag does NOT auto-open; it stays open for a manual barrier override.
+    const rfidMatched = event.rfidTag !== null;
+    const tagActive = event.rfidTag?.status === RFIDTagStatus.ACTIVE;
+    const rfidVerified = rfidMatched && tagActive;
+
     const now = new Date();
     const result = this.resolveGateEventResult({
-      rfidMatched: true,
-      tagActive: true,
+      rfidMatched,
+      tagActive,
       plateMatched: event.verification?.plateMatched ?? null,
       faceMatched,
     });
+
+    // Barrier auto-opens one tick after the face timeline entries so the ordering reads correctly.
+    const barrierOpenedAt = addMilliseconds(now, 2);
 
     await this.prisma.$transaction([
       this.prisma.gateEvent.update({
@@ -207,7 +224,11 @@ export class TransactionsService {
       }),
       this.prisma.eventVerification.update({
         where: { gateEventId: event.id },
-        data: { faceMatched, faceConfidence: body.faceConfidence ?? HARDCODED_FACE_CONFIDENCE },
+        data: {
+          faceMatched,
+          faceConfidence: body.faceConfidence ?? HARDCODED_FACE_CONFIDENCE,
+          ...(rfidVerified ? { verifiedAt: barrierOpenedAt } : {}),
+        },
       }),
       this.prisma.gateTimelineEvent.create({
         data: { gateEventId: event.id, type: TimelineEventType.FACE_CAPTURED, message: 'snapshot stored', occurredAt: now },
@@ -222,20 +243,35 @@ export class TransactionsService {
       this.prisma.gateSnapshot.create({
         data: { gateEventId: event.id, type: SnapshotType.FACE, imageUrl: body.snapshotUrl ?? PLACEHOLDER_SNAPSHOT_URL },
       }),
+      // RFID-only policy: a valid tag opens the barrier automatically at the end of the pipeline.
+      ...(rfidVerified
+        ? [
+            this.prisma.gateTimelineEvent.create({
+              data: { gateEventId: event.id, type: TimelineEventType.BARRIER_OPENED, message: 'RFID-only policy', occurredAt: barrierOpenedAt },
+            }),
+          ]
+        : []),
     ]);
 
-    return this.getTransactionById(event.id);
+    const detail = await this.getTransactionById(event.id);
+    // A flagged-but-auto-opened transaction (plate/face mismatch on a valid tag) still alerts
+    // reviewers once it closes.
+    if (rfidVerified) this.dispatchTransactionAlert(detail);
+    return detail;
   }
 
   // Stage 4 — barrier open. The final step: closes the transaction. Triggered from the operator
   // console; in production the RFID controller also opens the boom locally (GPIO) on a valid tag.
-  // RFID-only policy: a valid, active tag opens regardless of plate/face mismatches. Opening a
-  // flagged (non-VERIFIED) transaction is a manual override — it forces the result to MANUAL_OVERRIDE
-  // and records the acting operator + reason; opening a VERIFIED one is a normal close.
+  // RFID-only policy: a valid, active tag opens the barrier AUTOMATICALLY regardless of plate/face
+  // mismatches — that is a normal close, not an override, and the result is left as-is (e.g. it
+  // stays PLATE_MISMATCH/FACE_MISMATCH for review). Only an invalid tag (unknown or deactivated)
+  // has nothing to auto-open on, so the guard's action there is a manual override: it forces the
+  // result to MANUAL_OVERRIDE and records the acting operator + reason.
   async recordBarrierOpened(operator: AuthenticatedUser, body: RecordBarrierEventDTO): Promise<TransactionDetail> {
     const event = await this.findOpenTransaction();
     const now = new Date();
-    const isOverride = event.result !== GateEventResult.VERIFIED;
+    const rfidVerified = event.rfidTag !== null && event.rfidTag.status === RFIDTagStatus.ACTIVE;
+    const isOverride = !rfidVerified;
 
     await this.prisma.$transaction([
       // Override branch: flip the result and log who/why before the barrier opens.
@@ -340,6 +376,10 @@ export class TransactionsService {
   // cameras/boom is the OLDEST event not yet closed by the barrier step. UHF RFID range can read a
   // following truck early and open a 2nd transaction; that one stays queued behind. So reads attach
   // to the oldest open (FIFO), never the latest — picking "latest" would misroute onto a later truck.
+  // An open transaction may have no bound truck (UNKNOWN_TAG — the scanned tag isn't in the
+  // registry). That event still stays open so a real truck sitting at the gate can be carried
+  // through the pipeline and closed by a manual barrier override. Callers must therefore treat
+  // `truck` as nullable rather than assume it's present.
   private async findOpenTransaction(): Promise<OpenTransaction> {
     const event = await this.prisma.gateEvent.findFirst({
       where: {
@@ -350,7 +390,7 @@ export class TransactionsService {
       include: openTransactionInclude,
     });
 
-    if (!event || !event.truck) throw new NotFoundException('No open transaction to attach this read to');
+    if (!event) throw new NotFoundException('No open transaction to attach this read to');
 
     return event;
   }

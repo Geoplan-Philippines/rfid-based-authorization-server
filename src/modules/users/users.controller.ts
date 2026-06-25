@@ -44,14 +44,14 @@ export class UsersController {
   ): Promise<SafeUser> {
     return this.usersService.updateUser(id, updateUserDTO);
   }
- 
+
   @Patch(':id/archive')
   @UseGuards(PassportJwtGuard, RolesGuard)
   @Roles(Role.SUPER_ADMIN)
   archiveUser(@Param('id', ParseUUIDPipe) id: string): Promise<SafeUser> {
     return this.usersService.archiveUser(id);
   }
- 
+
   @Patch(':id/unarchive')
   @UseGuards(PassportJwtGuard, RolesGuard)
   @Roles(Role.SUPER_ADMIN)

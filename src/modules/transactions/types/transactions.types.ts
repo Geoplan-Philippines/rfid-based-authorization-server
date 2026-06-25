@@ -29,9 +29,13 @@ export const transactionDetailInclude = {
   timeline: { orderBy: { occurredAt: 'asc' } },
 } satisfies Prisma.GateEventInclude;
 
-// Open transaction = active, verifiable, and not yet closed by the barrier step.
-// Minimal include the pipeline stages (plate/face/barrier) need to patch the current event.
+// Open transaction = not yet closed by the barrier step. Minimal include the pipeline stages
+// (plate/face/barrier) need to patch the current event. `rfidTag` is included so plate/face reads
+// can recompute the result from the real tag state (matched? active?) rather than assuming the tag
+// was valid — an unknown or deactivated tag's result must stay UNKNOWN_TAG/DENIED through the
+// pipeline. `truck` is nullable (absent for an unknown tag).
 export const openTransactionInclude = {
+  rfidTag: true,
   truck: { include: { driverAssignments: { where: { status: TruckDriverAssignmentStatus.ACTIVE }, take: 1 } } },
   verification: true,
 } satisfies Prisma.GateEventInclude;
