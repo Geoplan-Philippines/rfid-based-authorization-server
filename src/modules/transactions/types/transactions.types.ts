@@ -63,7 +63,7 @@ export interface TransactionListItem {
   truck: { plateNumber: string; model: string } | null;
   truckInRegistry: boolean;
   driver: DriverSummary | null;
-  // True while the transaction is still mid-pipeline (not terminal, barrier not yet opened).
+  // True while the barrier has not yet opened (transaction is still mid-pipeline).
   isOpen: boolean;
 }
 
@@ -108,6 +108,6 @@ export interface TransactionDetail {
   // Depends on face recognition populating the event driver; false until that service lands.
   faceMatchesAssigned: boolean;
   snapshots: { id: string; type: SnapshotType; imageUrl: string }[];
-  // True while the transaction is still mid-pipeline (not terminal, barrier not yet opened).
+  // True while the barrier has not yet opened (transaction is still mid-pipeline).
   isOpen: boolean;
 }
