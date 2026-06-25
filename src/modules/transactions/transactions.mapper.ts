@@ -19,7 +19,7 @@ export function toTransactionListItem(event: GateEventListPayload): TransactionL
     truckInRegistry: event.truck !== null,
     driver: event.driver ? { firstName: event.driver.firstName, lastName: event.driver.lastName } : null,
     // List include filters timeline to BARRIER_OPENED only, so any row means the barrier opened.
-    isOpen: isTransactionOpen(event.result, event.timeline.length > 0),
+    isOpen: isTransactionOpen(event.timeline.length > 0),
   };
 }
 
@@ -64,7 +64,7 @@ export function toTransactionDetail(event: GateEventDetailPayload): TransactionD
     // Meaningful only after the face stage has run; before that the event has no recognised driver.
     faceMatchesAssigned: assignedDriver !== null && event.driverId === assignedDriver.id,
     snapshots: event.snapshots.map((snapshot) => ({ id: snapshot.id, type: snapshot.type, imageUrl: snapshot.imageUrl })),
-    isOpen: isTransactionOpen(event.result, event.timeline.some((entry) => entry.type === TimelineEventType.BARRIER_OPENED)),
+    isOpen: isTransactionOpen(event.timeline.some((entry) => entry.type === TimelineEventType.BARRIER_OPENED)),
   };
 }
 

@@ -1,12 +1,10 @@
-import { GateEventResult } from '@prisma/client';
-
-// A terminal result never proceeds to plate/face recognition or a barrier, so such events are
-// never "open" (no truck waiting at the barrier for later reads to attach to).
-export const TERMINAL_RESULTS: GateEventResult[] = [GateEventResult.UNKNOWN_TAG, GateEventResult.DENIED];
-
-// Open = still mid-pipeline: not a terminal result and the barrier has not opened yet. This is the
-// single source of truth shared by the service's "find open transaction" query and the mapped
-// `isOpen` display flag, so they can never drift apart.
-export function isTransactionOpen(result: GateEventResult, hasBarrierOpened: boolean): boolean {
-  return !TERMINAL_RESULTS.includes(result) && !hasBarrierOpened;
+// No gate result is terminal: whatever the verification outcome (unknown tag, plate/face mismatch,
+// or a deactivated/blocked tag), a real truck is sitting at the gate and the guard is the final
+// authority. The barrier opening — automatic (RFID-only policy) or a manual override — is the ONLY
+// thing that closes a transaction.
+//
+// Open = the barrier has not opened yet. This is the single source of truth shared by the service's
+// "find open transaction" query and the mapped `isOpen` display flag, so they can never drift apart.
+export function isTransactionOpen(hasBarrierOpened: boolean): boolean {
+  return !hasBarrierOpened;
 }

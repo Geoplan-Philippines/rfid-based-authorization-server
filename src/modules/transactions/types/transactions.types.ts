@@ -29,9 +29,13 @@ export const transactionDetailInclude = {
   timeline: { orderBy: { occurredAt: 'asc' } },
 } satisfies Prisma.GateEventInclude;
 
-// Open transaction = active, verifiable, and not yet closed by the barrier step.
-// Minimal include the pipeline stages (plate/face/barrier) need to patch the current event.
+// Open transaction = not yet closed by the barrier step. Minimal include the pipeline stages
+// (plate/face/barrier) need to patch the current event. `rfidTag` is included so plate/face reads
+// can recompute the result from the real tag state (matched? active?) rather than assuming the tag
+// was valid — an unknown or deactivated tag's result must stay UNKNOWN_TAG/DENIED through the
+// pipeline. `truck` is nullable (absent for an unknown tag).
 export const openTransactionInclude = {
+  rfidTag: true,
   truck: { include: { driverAssignments: { where: { status: TruckDriverAssignmentStatus.ACTIVE }, take: 1 } } },
   verification: true,
 } satisfies Prisma.GateEventInclude;
@@ -59,7 +63,7 @@ export interface TransactionListItem {
   truck: { plateNumber: string; model: string } | null;
   truckInRegistry: boolean;
   driver: DriverSummary | null;
-  // True while the transaction is still mid-pipeline (not terminal, barrier not yet opened).
+  // True while the barrier has not yet opened (transaction is still mid-pipeline).
   isOpen: boolean;
 }
 
@@ -104,6 +108,6 @@ export interface TransactionDetail {
   // Depends on face recognition populating the event driver; false until that service lands.
   faceMatchesAssigned: boolean;
   snapshots: { id: string; type: SnapshotType; imageUrl: string }[];
-  // True while the transaction is still mid-pipeline (not terminal, barrier not yet opened).
+  // True while the barrier has not yet opened (transaction is still mid-pipeline).
   isOpen: boolean;
 }
