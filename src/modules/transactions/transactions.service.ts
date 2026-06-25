@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { GateEventResult, Prisma, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
+import { addMilliseconds } from 'date-fns';
+import { nanoid } from 'nanoid';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import { EmailService } from '../email/email.service';
@@ -20,6 +22,14 @@ import { TERMINAL_RESULTS } from './transactions.policy';
 const HARDCODED_PLATE_CONFIDENCE = 0.96; // TODO: always provided by the OCR service
 const HARDCODED_FACE_CONFIDENCE = 0.88; // TODO: always provided by the face-recognition service
 const PLACEHOLDER_SNAPSHOT_URL = 'https://placeholder.local/snapshot.jpg'; // TODO: real capture storage
+
+// Gate event code: GATE- prefix + a short random id. Not sequential or human-decodable — there's
+// no readable-sequence requirement, and a random id removes the previous per-day DB count (and the
+// race where two simultaneous reads could collide on the same number). 7 chars over nanoid's
+// 64-char alphabet keeps collisions negligible at gate throughput.
+const EVENT_CODE_PREFIX = 'GATE';
+const EVENT_CODE_LENGTH = 7;
+const generateEventCode = (): string => `${EVENT_CODE_PREFIX}-${nanoid(EVENT_CODE_LENGTH)}`;
 
 @Injectable()
 export class TransactionsService {
@@ -88,7 +98,7 @@ export class TransactionsService {
 
     const event = await this.prisma.gateEvent.create({
       data: {
-        eventCode: await this.generateEventCode(occurredAt),
+        eventCode: generateEventCode(),
         occurredAt,
         result,
         rfidTag: tag ? { connect: { id: tag.id } } : undefined,
@@ -99,7 +109,7 @@ export class TransactionsService {
           create: [
             { type: TimelineEventType.RFID_SCANNED, message: `EPC ${body.epcId}`, occurredAt },
             ...(canVerify
-              ? [{ type: TimelineEventType.TAG_VALIDATED, message: `bound to ${truck.plateNumber}`, occurredAt: this.after(occurredAt, 1) }]
+              ? [{ type: TimelineEventType.TAG_VALIDATED, message: `bound to ${truck.plateNumber}`, occurredAt: addMilliseconds(occurredAt, 1) }]
               : []),
           ],
         },
@@ -145,7 +155,7 @@ export class TransactionsService {
       ...(plateMatched
         ? [
             this.prisma.gateTimelineEvent.create({
-              data: { gateEventId: event.id, type: TimelineEventType.PLATE_MATCHED, message: 'matches bound truck', occurredAt: this.after(now, 1) },
+              data: { gateEventId: event.id, type: TimelineEventType.PLATE_MATCHED, message: 'matches bound truck', occurredAt: addMilliseconds(now, 1) },
             }),
           ]
         : []),
@@ -205,7 +215,7 @@ export class TransactionsService {
       ...(faceMatched
         ? [
             this.prisma.gateTimelineEvent.create({
-              data: { gateEventId: event.id, type: TimelineEventType.FACE_MATCHED, message: 'matches assigned driver', occurredAt: this.after(now, 1) },
+              data: { gateEventId: event.id, type: TimelineEventType.FACE_MATCHED, message: 'matches assigned driver', occurredAt: addMilliseconds(now, 1) },
             }),
           ]
         : []),
@@ -252,7 +262,7 @@ export class TransactionsService {
           gateEventId: event.id,
           type: TimelineEventType.BARRIER_OPENED,
           message: isOverride ? 'manual override' : 'RFID-only policy',
-          occurredAt: isOverride ? this.after(now, 1) : now,
+          occurredAt: isOverride ? addMilliseconds(now, 1) : now,
         },
       }),
       this.prisma.eventVerification.update({ where: { gateEventId: event.id }, data: { verifiedAt: now } }),
@@ -356,28 +366,5 @@ export class TransactionsService {
     if (input.plateMatched === false) return GateEventResult.PLATE_MISMATCH;
     if (input.faceMatched === false) return GateEventResult.FACE_MISMATCH;
     return GateEventResult.VERIFIED;
-  }
-
-  // Daily sequence: GATE-YYYYMMDD-NNNN. Best-effort; eventCode is unique, so a concurrent
-  // collision surfaces as a Prisma error rather than a duplicate. Both the date and the count
-  // window use the server's local day (matching DashboardService day bucketing); using UTC for
-  // the date would print tomorrow's date for late-night passes while the count resets locally.
-  private async generateEventCode(occurredAt: Date): Promise<string> {
-    const startOfDay = new Date(occurredAt);
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const countToday = await this.prisma.gateEvent.count({ where: { occurredAt: { gte: startOfDay } } });
-
-    const year = occurredAt.getFullYear();
-    const month = String(occurredAt.getMonth() + 1).padStart(2, '0');
-    const day = String(occurredAt.getDate()).padStart(2, '0');
-    const datePart = `${year}${month}${day}`;
-    const sequence = String(countToday + 1).padStart(4, '0');
-    return `GATE-${datePart}-${sequence}`;
-  }
-
-  // Keeps sub-events of one stage in order when they're written in the same call.
-  private after(date: Date, ms: number): Date {
-    return new Date(date.getTime() + ms);
   }
 }

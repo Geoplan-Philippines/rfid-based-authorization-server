@@ -1,15 +1,9 @@
 import { Injectable } from '@nestjs/common';
+import { addDays, format, parseISO, startOfDay } from 'date-fns';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import { DASHBOARD_MAX_DAILY_EVENTS, NEEDS_REVIEW_PREVIEW_LIMIT } from './constants/dashboard.constants';
-import {
-  buildHourlyThroughput,
-  computeAvgPassTime,
-  computePercentage,
-  countExceptions,
-  countVerified,
-  toNeedsReviewItems,
-} from './dashboard.mapper';
+import { buildHourlyThroughput, computeAvgPassTime, computePercentage, countExceptions, countVerified, toNeedsReviewItems } from './dashboard.mapper';
 import { GetDashboardOverviewQueryDTO } from './dto/get-dashboard-overview-query.dto';
 import { DashboardOverview, dashboardEventSelect } from './types/dashboard.types';
 
@@ -18,9 +12,12 @@ export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getDashboardOverview(query: GetDashboardOverviewQueryDTO): Promise<DashboardOverview> {
-    const dayStart = this.resolveDayStart(query.date);
-    const dayEnd = this.addDays(dayStart, 1);
-    const previousDayStart = this.addDays(dayStart, -1);
+    // Report window is the gate's local day: an explicit date (validated YYYY-MM-DD by the DTO) or
+    // today. Local Y/M/D keeps the window and the hourly bucketing (getHours) in the server/gate
+    // timezone. parseISO reads the date string as local midnight (native Date would treat it as UTC).
+    const dayStart = startOfDay(query.date ? parseISO(query.date) : new Date());
+    const dayEnd = addDays(dayStart, 1);
+    const previousDayStart = addDays(dayStart, -1);
 
     // One day-window fetch drives every section (cards, hourly buckets, needs-review); a single
     // count covers the previous-day delta. The window is bounded, so loading the rows once and
@@ -42,7 +39,7 @@ export class DashboardService {
     const exceptions = countExceptions(events);
 
     return {
-      date: this.formatLocalDate(dayStart),
+      date: format(dayStart, 'yyyy-MM-dd'),
       generatedAt: new Date(),
       cards: {
         trucksToday: { value: trucksToday, deltaVsYesterday: trucksToday - previousDayTrucks },
@@ -56,29 +53,5 @@ export class DashboardService {
         items: toNeedsReviewItems(events, NEEDS_REVIEW_PREVIEW_LIMIT),
       },
     };
-  }
-
-  // Resolve the report window to the gate's local day. An explicit date is validated by the DTO
-  // (YYYY-MM-DD); otherwise today is used. Built from local Y/M/D so the window and the hourly
-  // bucketing (getHours) stay in the same timezone as the server/gate.
-  private resolveDayStart(date?: string): Date {
-    if (!date) {
-      const now = new Date();
-      return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    }
-
-    const [year, month, day] = date.split('-').map(Number);
-    return new Date(year, month - 1, day);
-  }
-
-  private addDays(date: Date, days: number): Date {
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
-  }
-
-  private formatLocalDate(date: Date): string {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
   }
 }

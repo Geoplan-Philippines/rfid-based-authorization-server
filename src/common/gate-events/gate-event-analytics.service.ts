@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { GateEventResult, Prisma } from '@prisma/client';
+import { subDays } from 'date-fns';
 
 import { PrismaService } from '../../core/database/prisma.service';
 
@@ -73,9 +74,9 @@ export class GateEventAnalyticsService {
     const summaries = this.createEmptySummaries(entityIds);
     if (entityIds.length === 0) return summaries;
 
-    const now = Date.now();
-    const since7d = new Date(now - 7 * 24 * 60 * 60 * 1000);
-    const since30d = new Date(now - 30 * 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const since7d = subDays(now, 7);
+    const since30d = subDays(now, 30);
 
     const [eventRows30d, denialRows7d, denialRows30d, latestRows] = await Promise.all([
       this.groupGateEventCounts(
