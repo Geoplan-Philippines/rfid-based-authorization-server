@@ -21,7 +21,9 @@ export function computePercentage(part: number, total: number): number {
 }
 
 // 24 buckets (one per gate-local hour), each split into verified vs exception. MANUAL_OVERRIDE
-// counts toward total only — it is neither a clean pass nor an open exception.
+// counts toward total only — it is neither a clean pass nor an open exception. IN_PROGRESS is
+// excluded entirely: a mid-pipeline truck hasn't completed a pass, and counting it in total would
+// make the chart's residual (total - verified - exception) misread it as an override.
 export function buildHourlyThroughput(events: DashboardEventPayload[]): HourlyThroughputBucket[] {
   const buckets: HourlyThroughputBucket[] = Array.from({ length: HOURS_PER_DAY }, (_, hour) => ({
     hour,
@@ -31,6 +33,7 @@ export function buildHourlyThroughput(events: DashboardEventPayload[]): HourlyTh
   }));
 
   for (const event of events) {
+    if (event.result === GateEventResult.IN_PROGRESS) continue;
     const bucket = buckets[event.occurredAt.getHours()];
     bucket.total += 1;
     if (event.result === GateEventResult.VERIFIED) bucket.verified += 1;

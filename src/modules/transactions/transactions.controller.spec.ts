@@ -3,6 +3,7 @@ import { GateEventResult } from '@prisma/client';
 
 import { TransactionsController } from './transactions.controller';
 import { TransactionsService } from './transactions.service';
+import { ApiKeyGuard } from '../api-keys/guards/api-key.guard';
 
 describe('TransactionsController', () => {
   let controller: TransactionsController;
@@ -22,7 +23,10 @@ describe('TransactionsController', () => {
       providers: [
         { provide: TransactionsService, useValue: transactionsService },
       ],
-    }).compile();
+    })
+    .overrideGuard(ApiKeyGuard)
+    .useValue({ canActivate: () => true })
+    .compile();
 
     controller = module.get<TransactionsController>(TransactionsController);
   });
@@ -53,6 +57,7 @@ describe('TransactionsController', () => {
           MANUAL_OVERRIDE: 0,
           DENIED: 0,
           ERROR: 0,
+          IN_PROGRESS: 0,
         },
       },
     };

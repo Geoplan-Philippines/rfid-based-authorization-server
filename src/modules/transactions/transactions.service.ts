@@ -136,6 +136,10 @@ export class TransactionsService {
     // override closes it.
     const { rfidMatched, tagActive } = this.getTagState(event);
     const now = new Date();
+
+    // TODO: findOpenTransaction has no locking — a plate read racing a barrier close can commit a
+    // stale non-finalized result after the transaction closed. Pre-existing; needs optimistic
+    // concurrency in a follow-up.
     const result = this.resolveGateEventResult({
       rfidMatched,
       tagActive,
@@ -203,13 +207,13 @@ export class TransactionsService {
     // automatically — even on a plate/face mismatch (the result is left flagged for review). An
     // unknown/deactivated tag does NOT auto-open; it stays open for a manual barrier override.
     const { rfidMatched, tagActive, verified: rfidVerified } = this.getTagState(event);
-
     const now = new Date();
     const result = this.resolveGateEventResult({
       rfidMatched,
       tagActive,
       plateMatched: event.verification?.plateMatched ?? null,
       faceMatched,
+      finalize: rfidVerified,
     });
 
     // +2ms places the barrier after this stage's timeline entries: FACE_CAPTURED (+0) and, when the
@@ -259,30 +263,36 @@ export class TransactionsService {
     return detail;
   }
 
-  // Stage 4 — barrier open. The final step: closes the transaction. Triggered from the operator
-  // console; in production the RFID controller also opens the boom locally (GPIO) on a valid tag.
-  // RFID-only policy: a valid, active tag opens the barrier AUTOMATICALLY regardless of plate/face
-  // mismatches — that is a normal close, not an override, and the result is left as-is (e.g. it
-  // stays PLATE_MISMATCH/FACE_MISMATCH for review). Only an invalid tag (unknown or deactivated)
-  // has nothing to auto-open on, so the guard's action there is a manual override: it forces the
-  // result to MANUAL_OVERRIDE and records the acting operator + reason.
+  // Stage 4 — barrier open. Closes the transaction. A valid tag closes normally (result finalized:
+  // unchecked stages treated as passed). An invalid tag (unknown/deactivated) is a manual override:
+  // result becomes MANUAL_OVERRIDE and the acting operator + reason are recorded.
   async recordBarrierOpened(operator: AuthenticatedUser, body: RecordBarrierEventDTO): Promise<TransactionDetail> {
     const event = await this.findOpenTransaction();
     const now = new Date();
-    const isOverride = !this.getTagState(event).verified;
-    // The override branch logs a MANUAL_OVERRIDE entry at `now` first, so the barrier opens one tick
-    // later; a normal close opens at `now`. verifiedAt tracks this same instant.
+    const { rfidMatched, tagActive, verified } = this.getTagState(event);
+    const isOverride = !verified;
+    // Override logs a MANUAL_OVERRIDE entry at `now`, so the barrier opens one tick later.
     const barrierOpenedAt = isOverride ? addMilliseconds(now, 1) : now;
 
+    // Finalize on close so an early-closed valid tag doesn't stay IN_PROGRESS forever.
+    const finalResult = isOverride
+      ? GateEventResult.MANUAL_OVERRIDE
+      : this.resolveGateEventResult({
+          rfidMatched,
+          tagActive,
+          plateMatched: event.verification?.plateMatched ?? null,
+          faceMatched: event.verification?.faceMatched ?? null,
+          finalize: true,
+        });
+
     await this.prisma.$transaction([
-      // Override branch: flip the result and log who/why before the barrier opens.
+      this.prisma.gateEvent.update({
+        where: { id: event.id },
+        data: { result: finalResult },
+      }),
       ...(isOverride
         ? [
-            this.prisma.gateEvent.update({
-              where: { id: event.id },
-              data: { result: GateEventResult.MANUAL_OVERRIDE },
-            }),
-            // Operator identity lives in metadata since the schema has no dedicated override-by column.
+            // Operator identity lives in metadata (no dedicated override-by column).
             this.prisma.gateTimelineEvent.create({
               data: {
                 gateEventId: event.id,
@@ -305,15 +315,9 @@ export class TransactionsService {
       this.prisma.eventVerification.update({ where: { gateEventId: event.id }, data: { verifiedAt: barrierOpenedAt } }),
     ]);
 
-    // The transaction is now complete (barrier opened). Alert reviewers if it closed on a
-    // non-VERIFIED result — the email then reflects the final state, including any override.
-    //
-    // No double-alert with recordFaceRead's auto-open: a valid tag that ran the full pipeline is
-    // already closed there, so findOpenTransaction above would have thrown before reaching here.
-    // This path only fires when the barrier is opened directly — a manual override, or a valid tag
-    // closed early because the face/plate stage never ran. In that early-close case the alert may
-    // fire on a flagged result (e.g. a plate mismatch on a valid tag): that is intended, not a bug —
-    // the guard opened without full verification and reviewers should see it.
+    // Transaction complete — alert reviewers on a non-VERIFIED close. No double-alert with the
+    // face stage's auto-open: that path already closed the event, so findOpenTransaction throws
+    // before reaching here.
     const detail = await this.getTransactionById(event.id);
     this.dispatchTransactionAlert(detail);
     return detail;
@@ -417,11 +421,18 @@ export class TransactionsService {
     tagActive: boolean;
     plateMatched: boolean | null;
     faceMatched: boolean | null;
+    // Finalizing = the transaction is closing (barrier opening). Under the RFID-only policy a
+    // stage that never ran is treated as passed at close; while the transaction is still open,
+    // an unchecked stage means the pipeline is mid-flight → IN_PROGRESS, never VERIFIED.
+    finalize?: boolean;
   }): GateEventResult {
     if (!input.rfidMatched) return GateEventResult.UNKNOWN_TAG;
     if (!input.tagActive) return GateEventResult.DENIED;
     if (input.plateMatched === false) return GateEventResult.PLATE_MISMATCH;
     if (input.faceMatched === false) return GateEventResult.FACE_MISMATCH;
+    if (!input.finalize && (input.plateMatched === null || input.faceMatched === null)) {
+      return GateEventResult.IN_PROGRESS;
+    }
     return GateEventResult.VERIFIED;
   }
 }

@@ -74,6 +74,15 @@ describe('dashboard.mapper', () => {
 
       expect(buckets[8]).toEqual({ hour: 8, verified: 1, exception: 1, total: 3 });
     });
+
+    it('excludes IN_PROGRESS events entirely so the residual is not misread as an override', () => {
+      const buckets = buildHourlyThroughput([
+        makeEvent({ occurredAt: new Date('2026-06-21T08:15:00'), result: GateEventResult.VERIFIED }),
+        makeEvent({ occurredAt: new Date('2026-06-21T08:30:00'), result: GateEventResult.IN_PROGRESS }),
+      ]);
+
+      expect(buckets[8]).toEqual({ hour: 8, verified: 1, exception: 0, total: 1 });
+    });
   });
 
   describe('computeAvgPassTime', () => {

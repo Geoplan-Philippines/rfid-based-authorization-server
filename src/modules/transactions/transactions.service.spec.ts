@@ -5,6 +5,7 @@ import { GateEventResult, RFIDTagStatus, SnapshotType, TimelineEventType } from 
 import { PrismaService } from '../../core/database/prisma.service';
 import { TransactionsService } from './transactions.service';
 import { transactionDetailInclude } from './types/transactions.types';
+import { EmailService } from '../email/email.service';
 
 describe('TransactionsService', () => {
   let service: TransactionsService;
@@ -31,6 +32,7 @@ describe('TransactionsService', () => {
       providers: [
         TransactionsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: EmailService, useValue: { sendTransactionAlert: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
@@ -94,6 +96,7 @@ describe('TransactionsService', () => {
       MANUAL_OVERRIDE: 0,
       DENIED: 0,
       ERROR: 0,
+      IN_PROGRESS: 0,
     });
   });
 
@@ -217,5 +220,45 @@ describe('TransactionsService', () => {
     prisma.gateEvent.findUnique.mockResolvedValue(null);
 
     await expect(service.getTransactionById('missing-event')).rejects.toThrow(NotFoundException);
+  });
+
+  describe('resolveGateEventResult', () => {
+    // Private method: exercised directly for the finalize matrix.
+    const resolve = (input: Parameters<TransactionsService['resolveGateEventResult']>[0]) =>
+      (service as unknown as { resolveGateEventResult: TransactionsService['resolveGateEventResult'] }).resolveGateEventResult(input);
+
+    it('returns UNKNOWN_TAG when the tag is not matched', () => {
+      expect(resolve({ rfidMatched: false, tagActive: false, plateMatched: null, faceMatched: null })).toBe(GateEventResult.UNKNOWN_TAG);
+    });
+
+    it('returns DENIED when the tag is matched but not active', () => {
+      expect(resolve({ rfidMatched: true, tagActive: false, plateMatched: null, faceMatched: null })).toBe(GateEventResult.DENIED);
+    });
+
+    it('returns PLATE_MISMATCH when the plate check failed', () => {
+      expect(resolve({ rfidMatched: true, tagActive: true, plateMatched: false, faceMatched: null })).toBe(GateEventResult.PLATE_MISMATCH);
+    });
+
+    it('returns FACE_MISMATCH when the face check failed', () => {
+      expect(resolve({ rfidMatched: true, tagActive: true, plateMatched: true, faceMatched: false })).toBe(GateEventResult.FACE_MISMATCH);
+    });
+
+    it('returns IN_PROGRESS while stages are unchecked and the transaction is still open', () => {
+      expect(resolve({ rfidMatched: true, tagActive: true, plateMatched: null, faceMatched: null })).toBe(GateEventResult.IN_PROGRESS);
+      expect(resolve({ rfidMatched: true, tagActive: true, plateMatched: true, faceMatched: null })).toBe(GateEventResult.IN_PROGRESS);
+    });
+
+    it('returns VERIFIED when finalizing with unchecked stages (treated as passed on close)', () => {
+      expect(resolve({ rfidMatched: true, tagActive: true, plateMatched: null, faceMatched: null, finalize: true })).toBe(GateEventResult.VERIFIED);
+      expect(resolve({ rfidMatched: true, tagActive: true, plateMatched: true, faceMatched: null, finalize: true })).toBe(GateEventResult.VERIFIED);
+    });
+
+    it('returns VERIFIED when all checks passed', () => {
+      expect(resolve({ rfidMatched: true, tagActive: true, plateMatched: true, faceMatched: true })).toBe(GateEventResult.VERIFIED);
+    });
+
+    it('keeps mismatch results even when finalizing', () => {
+      expect(resolve({ rfidMatched: true, tagActive: true, plateMatched: false, faceMatched: null, finalize: true })).toBe(GateEventResult.PLATE_MISMATCH);
+    });
   });
 });

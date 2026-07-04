@@ -257,6 +257,7 @@ enum GateEventResult {
   MANUAL_OVERRIDE
   DENIED
   ERROR
+  IN_PROGRESS
 }
 
 enum SnapshotType {
