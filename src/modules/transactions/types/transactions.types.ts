@@ -60,7 +60,7 @@ export interface TransactionListItem {
   rfidTag: { epcId: string; status: RFIDTagStatus } | null;
   plateRead: string | null;
   plateMismatch: boolean;
-  truck: { plateNumber: string; model: string } | null;
+  truck: { plateNumber: string; model: string | null } | null;
   truckInRegistry: boolean;
   driver: DriverSummary | null;
   // True while the barrier has not yet opened (transaction is still mid-pipeline).
@@ -101,7 +101,7 @@ export interface TransactionDetail {
   verification: TransactionVerification | null;
   timeline: TransactionTimelineEvent[];
   rfidTag: { epcId: string; status: RFIDTagStatus; assignedTruckPlate: string | null } | null;
-  truck: { plateNumber: string; model: string; assignedDriver: DriverSummary | null } | null;
+  truck: { plateNumber: string; model: string | null; assignedDriver: DriverSummary | null } | null;
   truckInRegistry: boolean;
   driver: (DriverSummary & { id: string }) | null;
   // True when the event's recorded driver matches the truck's active assignment.

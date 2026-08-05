@@ -1,9 +1,15 @@
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
+import type { AuthenticatedUser } from '../auth/types/auth.types';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
-import { UpdateUserDTO } from './dto/update-user.dto';
+
+const actor: AuthenticatedUser = {
+  id: 'actor-uuid-1',
+  email: 'super@example.com',
+  role: 'SUPER_ADMIN',
+};
 
 const mockSafeUser = {
   id: 'user-uuid-1',
@@ -16,102 +22,67 @@ const mockSafeUser = {
   updatedAt: new Date(),
 };
 
-const mockUsersService = {
-  createUser: jest.fn(),
-  getAllUsers: jest.fn(),
-  findUserById: jest.fn(),
-  updateUser: jest.fn(),
-  archiveUser: jest.fn(),
-  unarchiveUser: jest.fn(),
-};
-
 describe('UsersController', () => {
   let controller: UsersController;
 
+  const usersService = {
+    createUser: jest.fn(),
+    getAllUsers: jest.fn(),
+    getUserById: jest.fn(),
+    updateUser: jest.fn(),
+    archiveUser: jest.fn(),
+    unarchiveUser: jest.fn(),
+  };
+
   beforeEach(async () => {
+    jest.resetAllMocks();
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [UsersController],
-      providers: [{ provide: UsersService, useValue: mockUsersService }],
+      providers: [{ provide: UsersService, useValue: usersService }],
     }).compile();
 
     controller = module.get<UsersController>(UsersController);
-    jest.resetAllMocks();
   });
 
-  it('delegates simple pass-through routes to the service', async () => {
-    mockUsersService.createUser.mockResolvedValue(mockSafeUser);
-    mockUsersService.getAllUsers.mockResolvedValue([mockSafeUser]);
-    mockUsersService.archiveUser.mockResolvedValue({ ...mockSafeUser, isArchived: true });
-    mockUsersService.unarchiveUser.mockResolvedValue(mockSafeUser);
+  it('forwards the acting user id to every mutating route', async () => {
+    const body = { email: 'juan@example.com', password: 'password123' };
+    usersService.createUser.mockResolvedValue(mockSafeUser);
+    usersService.updateUser.mockResolvedValue(mockSafeUser);
+    usersService.archiveUser.mockResolvedValue({ ...mockSafeUser, isArchived: true });
+    usersService.unarchiveUser.mockResolvedValue(mockSafeUser);
 
-    await expect(
-      controller.createUser({
-        firstName: 'Juan',
-        lastName: 'Dela Cruz',
-        email: 'juan@example.com',
-        password: 'password123',
-      })
-    ).resolves.toEqual(mockSafeUser);
+    await controller.createUser(body, actor);
+    await controller.updateUser('user-uuid-1', { firstName: 'Updated' }, actor);
+    await controller.archiveUser('user-uuid-1', actor);
+    await controller.unarchiveUser('user-uuid-1', actor);
 
-    await expect(controller.getAllUsers()).resolves.toEqual([mockSafeUser]);
-    await expect(controller.archiveUser('user-uuid-1')).resolves.toMatchObject({ isArchived: true });
-    await expect(controller.unarchiveUser('user-uuid-1')).resolves.toEqual(mockSafeUser);
-
-    expect(mockUsersService.archiveUser).toHaveBeenCalledWith('user-uuid-1');
-    expect(mockUsersService.unarchiveUser).toHaveBeenCalledWith('user-uuid-1');
+    expect(usersService.createUser).toHaveBeenCalledWith(body, actor.id);
+    expect(usersService.updateUser).toHaveBeenCalledWith('user-uuid-1', { firstName: 'Updated' }, actor.id);
+    expect(usersService.archiveUser).toHaveBeenCalledWith('user-uuid-1', actor.id);
+    expect(usersService.unarchiveUser).toHaveBeenCalledWith('user-uuid-1', actor.id);
   });
 
-  describe('findUserById', () => {
-    it('returns the user when found', async () => {
-      mockUsersService.findUserById.mockResolvedValue(mockSafeUser);
+  it('passes the parsed list query straight through', async () => {
+    const query = { page: 2, limit: 20, includeArchived: true, role: 'OPERATOR' as const };
+    const paginated = { data: [mockSafeUser], meta: { total: 1, page: 2, limit: 20, lastPage: 1 } };
+    usersService.getAllUsers.mockResolvedValue(paginated);
 
-      const result = await controller.findUserById('user-uuid-1');
-
-      expect(result).toEqual(mockSafeUser);
-    });
-
-    it('throws NotFoundException when the service returns null', async () => {
-      mockUsersService.findUserById.mockResolvedValue(null);
-
-      await expect(controller.findUserById('nonexistent-uuid')).rejects.toThrow(NotFoundException);
-    });
+    await expect(controller.getAllUsers(query)).resolves.toEqual(paginated);
+    expect(usersService.getAllUsers).toHaveBeenCalledWith(query);
   });
 
-  describe('updateUser', () => {
-    const dto: UpdateUserDTO = { firstName: 'Updated' };
+  it('returns the user resolved by the service', async () => {
+    usersService.getUserById.mockResolvedValue(mockSafeUser);
 
-    it('returns the updated user', async () => {
-      const updated = { ...mockSafeUser, firstName: 'Updated' };
-      mockUsersService.updateUser.mockResolvedValue(updated);
+    await expect(controller.getUserById('user-uuid-1')).resolves.toEqual(mockSafeUser);
+  });
 
-      const result = await controller.updateUser('user-uuid-1', dto);
+  it('propagates service errors unchanged', async () => {
+    usersService.getUserById.mockRejectedValue(new NotFoundException('User not found'));
+    usersService.archiveUser.mockRejectedValue(new ForbiddenException('Cannot archive your own account.'));
 
-      expect(mockUsersService.updateUser).toHaveBeenCalledWith('user-uuid-1', dto);
-      expect(result).toEqual(updated);
-    });
-
-    it('propagates NotFoundException when the user does not exist', async () => {
-      mockUsersService.updateUser.mockRejectedValue(new NotFoundException('User not found'));
-
-      await expect(controller.updateUser('nonexistent-uuid', dto)).rejects.toThrow(NotFoundException);
-    });
-
-    it('propagates ConflictException on duplicate email', async () => {
-      mockUsersService.updateUser.mockRejectedValue(new ConflictException('Email already in use'));
-
-      await expect(
-        controller.updateUser('user-uuid-1', { email: 'taken@example.com' })
-      ).rejects.toThrow(ConflictException);
-    });
-
-    it('propagates ForbiddenException when promoting to SUPER_ADMIN', async () => {
-      mockUsersService.updateUser.mockRejectedValue(
-        new ForbiddenException('Cannot promote a user to SUPER_ADMIN via this endpoint.')
-      );
-
-      await expect(
-        controller.updateUser('user-uuid-1', { role: 'SUPER_ADMIN' as const })
-      ).rejects.toThrow(ForbiddenException);
-    });
+    await expect(controller.getUserById('missing-uuid')).rejects.toThrow(NotFoundException);
+    await expect(controller.archiveUser(actor.id, actor)).rejects.toThrow(ForbiddenException);
   });
 });

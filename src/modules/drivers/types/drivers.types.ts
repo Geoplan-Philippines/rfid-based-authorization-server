@@ -25,7 +25,7 @@ export interface DriverListItem {
 export interface DriverDetailTruck {
   id: string;
   plateNumber: string;
-  model: string;
+  model: string | null;
   role: AssignmentRole;
   since: Date;
   tagEpc: string | null;

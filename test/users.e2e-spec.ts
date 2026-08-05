@@ -117,17 +117,19 @@ describe('Users (e2e)', () => {
       .expect(400);
   });
 
-  it('GET /api/v1/users — returns users when authenticated', async () => {
+  it('GET /api/v1/users — returns a paginated envelope when authenticated', async () => {
     const res = await request(app.getHttpServer())
       .get('/api/v1/users')
+      .query({ search: userEmail })
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
 
-    const body = res.body.data ?? res.body;
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.meta).toEqual(
+      expect.objectContaining({ page: 1, limit: 10, total: expect.any(Number), lastPage: expect.any(Number) }),
+    );
 
-    expect(Array.isArray(body)).toBe(true);
-
-    const emails = body.map((user: { email: string }) => user.email);
+    const emails = res.body.data.map((user: { email: string }) => user.email);
     expect(emails).toContain(userEmail);
   });
 
@@ -384,11 +386,26 @@ describe('Users (e2e)', () => {
       expect(emails).not.toContain(archivableEmail);
     });
 
-    it('excludes the archived user from GET /api/v1/users/:id', async () => {
-      await request(app.getHttpServer())
+    it('still returns the archived user from GET /api/v1/users/:id so it can be restored', async () => {
+      const res = await request(app.getHttpServer())
         .get(`/api/v1/users/${archivableUserId}`)
         .set('Authorization', `Bearer ${accessToken}`)
-        .expect(404);
+        .expect(200);
+
+      const body = res.body.data ?? res.body;
+      expect(body.id).toBe(archivableUserId);
+      expect(body.isArchived).toBe(true);
+    });
+
+    it('includes the archived user only when includeArchived=true', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/users')
+        .query({ search: archivableEmail, includeArchived: true })
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      const emails = (res.body.data ?? res.body).map((user: { email: string }) => user.email);
+      expect(emails).toContain(archivableEmail);
     });
 
     it('rejects login for the archived user', async () => {
@@ -478,6 +495,96 @@ describe('Users (e2e)', () => {
 
       const body = res.body.data ?? res.body;
       expect(body.accessToken).toBeDefined();
+    });
+  });
+
+  describe('role and self-mutation guards', () => {
+    let operatorToken: string;
+    let operatorId: string;
+    const operatorEmail = `users-operator-e2e-${Date.now()}@example.com`;
+
+    beforeAll(async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/api/v1/users')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          firstName: 'Gate',
+          lastName: 'Operator',
+          email: operatorEmail,
+          password: 'password123',
+          role: 'OPERATOR',
+        })
+        .expect(201);
+
+      operatorId = (createRes.body.data ?? createRes.body).id;
+
+      const loginRes = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: operatorEmail, password: 'password123' })
+        .expect(201);
+
+      operatorToken = (loginRes.body.data ?? loginRes.body).accessToken;
+    });
+
+    afterAll(async () => {
+      await prisma.user.deleteMany({ where: { email: operatorEmail } });
+    });
+
+    it('403s every /users route for a non-SUPER_ADMIN', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/users')
+        .set('Authorization', `Bearer ${operatorToken}`)
+        .expect(403);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/users/${operatorId}`)
+        .set('Authorization', `Bearer ${operatorToken}`)
+        .expect(403);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/users/${operatorId}`)
+        .set('Authorization', `Bearer ${operatorToken}`)
+        .send({ firstName: 'Escalate' })
+        .expect(403);
+    });
+
+    it('filters the list by role', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/users')
+        .query({ role: 'OPERATOR', limit: 50 })
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      const roles = res.body.data.map((user: { role: string }) => user.role);
+      expect(roles.every((role: string) => role === 'OPERATOR')).toBe(true);
+    });
+
+    it('403s when a SUPER_ADMIN archives their own account', async () => {
+      const meRes = await request(app.getHttpServer())
+        .get('/api/v1/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      const selfId = (meRes.body.data ?? meRes.body).id;
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/users/${selfId}/archive`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(403);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/users/${selfId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ role: 'ADMIN' })
+        .expect(403);
+    });
+
+    it('400s when the update body carries no updatable field', async () => {
+      await request(app.getHttpServer())
+        .patch(`/api/v1/users/${operatorId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({})
+        .expect(400);
     });
   });
 });
