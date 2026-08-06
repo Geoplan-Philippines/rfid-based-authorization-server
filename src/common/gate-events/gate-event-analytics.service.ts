@@ -35,7 +35,7 @@ export interface RecentGateEvent {
   eventCode: string;
   occurredAt: Date;
   result: GateEventResult;
-  truck: { id: string; plateNumber: string; model: string } | null;
+  truck: { id: string; plateNumber: string; model: string | null } | null;
   driver: { id: string; firstName: string; lastName: string } | null;
 }
 

@@ -5,13 +5,15 @@ import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
 export interface RfidAssignedTruckSummary {
   id: string;
   plateNumber: string;
-  model: string;
+  model: string | null;
 }
 
 export interface RfidTagListItem {
   id: string;
   epcId: string;
+  serialNo: string | null;
   status: RFIDTagStatus;
+  // Null for spare stock: a tag can exist unbound until staff issue it to a truck.
   assignedTruck: RfidAssignedTruckSummary | null;
   lastSeenAt: Date | null;
   lastResult: GateEventResult | null;

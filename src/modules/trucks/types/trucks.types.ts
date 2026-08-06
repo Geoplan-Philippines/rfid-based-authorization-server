@@ -18,7 +18,7 @@ export interface TruckBoundTagSummary {
 export interface TruckListItem {
   id: string;
   plateNumber: string;
-  model: string;
+  model: string | null;
   photoUrl: string | null;
   isArchived: boolean;
   drivers: TruckDriverListSummary[];
@@ -40,7 +40,7 @@ export interface TruckDetailDriver {
 export interface TruckDetail {
   id: string;
   plateNumber: string;
-  model: string;
+  model: string | null;
   photoUrl: string | null;
   isArchived: boolean;
   status: 'ACTIVE' | 'ARCHIVED';

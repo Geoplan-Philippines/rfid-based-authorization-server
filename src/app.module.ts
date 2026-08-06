@@ -21,6 +21,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { RfidTagsModule } from './modules/rfid-tags/rfid-tags.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
     TransactionsModule,
     DashboardModule,
     RfidTagsModule,
+    ReportsModule,
     AuditLogsModule,
     ApiKeysModule,
   ],

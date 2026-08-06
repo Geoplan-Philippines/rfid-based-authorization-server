@@ -60,7 +60,7 @@ model Driver {
 model Truck {
   id                            String                    @id @default(uuid())
   plateNumber                   String                    @unique @map("plate_number")
-  model                         String
+  model                         String?
   photoUrl                      String?                   @map("photo_url")
   isArchived                    Boolean                   @default(false) @map("is_archived")
 
@@ -95,10 +95,11 @@ model TruckDriverAssignment {
 model RFIDTag {
   id                            String                    @id @default(uuid())
   epcId                         String                    @unique @map("epc_id")
+  serialNo                      String?                   @unique @map("serial_no")
   status                        RFIDTagStatus             @default(ACTIVE)
 
-  assignedTruckId               String                    @unique @map("assigned_truck_id")
-  assignedTruck                 Truck                     @relation(fields: [assignedTruckId], references: [id])
+  assignedTruckId               String?                   @unique @map("assigned_truck_id")
+  assignedTruck                 Truck?                    @relation(fields: [assignedTruckId], references: [id])
 
   createdAt                     DateTime                  @default(now()) @map("created_at")
   updatedAt                     DateTime                  @updatedAt @map("updated_at")

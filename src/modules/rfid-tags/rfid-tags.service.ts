@@ -9,6 +9,7 @@ import { GetAllRfidTagsQueryDTO } from './dto/get-all-rfid-tags-query.dto';
 import { RebindRfidTagDTO } from './dto/rebind-rfid-tag.dto';
 import { UpdateRfidTagStatusDTO } from './dto/update-rfid-tag-status.dto';
 import {
+  RfidAssignedTruckSummary,
   RfidTagDetail,
   RfidTagListItem,
   RfidTagListResponse,
@@ -26,8 +27,11 @@ export class RfidTagsService {
   ) {}
 
   async createRfidTag(body: CreateRfidTagDTO, actorId?: string): Promise<RfidTagWithTruck> {
-    const truck = await this.prisma.truck.findUnique({ where: { id: body.assignedTruckId } });
-    if (!truck) throw new NotFoundException('Truck not found');
+    // An omitted truck registers the tag as unbound spare stock, so only validate when one is given.
+    if (body.assignedTruckId) {
+      const truck = await this.prisma.truck.findUnique({ where: { id: body.assignedTruckId } });
+      if (!truck) throw new NotFoundException('Truck not found');
+    }
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -90,12 +94,9 @@ export class RfidTagsService {
         return {
           id: rfidTag.id,
           epcId: rfidTag.epcId,
+          serialNo: rfidTag.serialNo,
           status: rfidTag.status,
-          assignedTruck: {
-            id: rfidTag.assignedTruck.id,
-            plateNumber: rfidTag.assignedTruck.plateNumber,
-            model: rfidTag.assignedTruck.model,
-          },
+          assignedTruck: this.mapAssignedTruck(rfidTag.assignedTruck),
           lastSeenAt: summary.lastEventAt,
           lastResult: summary.lastResult,
           events30d: summary.events30d,
@@ -142,12 +143,9 @@ export class RfidTagsService {
     return {
       id: rfidTag.id,
       epcId: rfidTag.epcId,
+      serialNo: rfidTag.serialNo,
       status: rfidTag.status,
-      assignedTruck: {
-        id: rfidTag.assignedTruck.id,
-        plateNumber: rfidTag.assignedTruck.plateNumber,
-        model: rfidTag.assignedTruck.model,
-      },
+      assignedTruck: this.mapAssignedTruck(rfidTag.assignedTruck),
       lastSeenAt: summary.lastEventAt,
       lastResult: summary.lastResult,
       events30d: summary.events30d,
@@ -238,6 +236,16 @@ export class RfidTagsService {
     return this.getRfidTagById(id);
   }
 
+  private mapAssignedTruck(truck: RfidTagWithTruck['assignedTruck']): RfidAssignedTruckSummary | null {
+    if (!truck) return null;
+
+    return {
+      id: truck.id,
+      plateNumber: truck.plateNumber,
+      model: truck.model,
+    };
+  }
+
   private buildListWhere(
     query: GetAllRfidTagsQueryDTO,
     options: { includeStatus?: boolean } = {},
@@ -251,6 +259,7 @@ export class RfidTagsService {
         OR: [
           { id: search },
           { epcId: { contains: search, mode: 'insensitive' } },
+          { serialNo: { contains: search, mode: 'insensitive' } },
           { assignedTruck: { is: { plateNumber: { contains: search, mode: 'insensitive' } } } },
         ],
       });
@@ -283,7 +292,7 @@ export class RfidTagsService {
 
   private throwRfidTagConflict(error: unknown): void {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      throw new ConflictException('RFID tag already exists for this EPC or truck');
+      throw new ConflictException('RFID tag already exists for this EPC, serial number, or truck');
     }
   }
 }

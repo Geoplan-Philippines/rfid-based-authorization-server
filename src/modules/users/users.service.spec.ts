@@ -1,234 +1,337 @@
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
-import { UsersService } from './users.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { UsersService } from './users.service';
 
 jest.mock('bcrypt');
 
-const mockUser = {
-  id: 'user-uuid-1',
+const mockSafeUser = {
+  id: 'b3d2f1a0-1111-4222-8333-444455556666',
   firstName: 'Juan',
   lastName: 'Dela Cruz',
   email: 'juan@example.com',
-  password: 'hashed-password',
   role: 'ADMIN' as const,
   isArchived: false,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
 
-const mockPrisma = {
-  user: {
-    findUnique: jest.fn(),
-    findMany: jest.fn(),
-    create: jest.fn(),
-    update: jest.fn(),
-  },
-};
+const mockUser = { ...mockSafeUser, password: 'hashed-password' };
+
+const uniqueEmailError = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+  code: 'P2002',
+  clientVersion: 'test',
+  meta: { target: ['email'] },
+});
 
 describe('UsersService', () => {
   let service: UsersService;
 
+  const transactionClient = {
+    user: {
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+  };
+
+  const prismaService = {
+    $transaction: jest.fn(),
+    user: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
+    },
+  };
+
+  const auditLogsService = {
+    recordAuditLog: jest.fn(),
+  };
+
   beforeEach(async () => {
+    jest.resetAllMocks();
+    prismaService.$transaction.mockImplementation((callback: (tx: typeof transactionClient) => unknown) =>
+      callback(transactionClient),
+    );
+    (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [UsersService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        UsersService,
+        { provide: PrismaService, useValue: prismaService },
+        { provide: AuditLogsService, useValue: auditLogsService },
+      ],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
-    jest.resetAllMocks();
-    (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
   });
 
   describe('createUser', () => {
-    const dto = {
-      firstName: 'Juan',
-      lastName: 'Dela Cruz',
-      email: 'Juan@Example.com',
+    const body = {
+      firstName: ' Juan ',
+      lastName: ' Dela Cruz ',
+      email: ' Juan@Example.com ',
       password: 'password123',
     };
 
-    it('normalizes email, hashes password, and returns the created user without password', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(null);
-      const { password, ...safeUser } = mockUser;
-      mockPrisma.user.create.mockResolvedValue(safeUser);
+    it('normalizes input, hashes the password, and writes an audit log', async () => {
+      transactionClient.user.create.mockResolvedValue(mockSafeUser);
 
-      const result = await service.createUser(dto);
+      const result = await service.createUser(body, 'actor-1');
 
-      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({ where: { email: 'juan@example.com' } });
       expect(bcrypt.hash).toHaveBeenCalledWith('password123', 10);
-      expect(mockPrisma.user.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ email: 'juan@example.com', password: 'hashed-password' }),
+      expect(transactionClient.user.create).toHaveBeenCalledWith({
+        data: {
+          firstName: 'Juan',
+          lastName: 'Dela Cruz',
+          email: 'juan@example.com',
+          password: 'hashed-password',
+          role: undefined,
+        },
         omit: { password: true },
       });
+      expect(auditLogsService.recordAuditLog).toHaveBeenCalledWith({
+        actorId: 'actor-1',
+        action: 'CREATE_USER',
+        entityType: 'User',
+        entityId: mockUser.id,
+        metadata: { email: 'juan@example.com', role: 'ADMIN' },
+      }, transactionClient);
       expect(result).not.toHaveProperty('password');
     });
 
-    it('throws ConflictException when the email is already in use', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(mockUser);
+    it('translates a unique-email violation into ConflictException', async () => {
+      transactionClient.user.create.mockRejectedValue(uniqueEmailError);
 
-      await expect(service.createUser(dto)).rejects.toThrow(ConflictException);
-      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+      await expect(service.createUser(body)).rejects.toThrow(ConflictException);
     });
   });
 
   describe('getAllUsers', () => {
-    it('excludes archived users by default, includes them when requested', async () => {
-      mockPrisma.user.findMany.mockResolvedValue([]);
+    const query = { page: 1, limit: 10, includeArchived: false };
 
-      await service.getAllUsers();
-      expect(mockPrisma.user.findMany).toHaveBeenCalledWith({
-        where: { isArchived: false },
+    beforeEach(() => {
+      prismaService.user.findMany.mockResolvedValue([mockSafeUser]);
+      prismaService.user.count.mockResolvedValue(1);
+    });
+
+    it('paginates newest first and hides archived users by default', async () => {
+      const result = await service.getAllUsers(query);
+
+      expect(prismaService.user.findMany).toHaveBeenCalledWith({
+        where: { AND: [{ isArchived: false }] },
+        skip: 0,
+        take: 10,
+        orderBy: { createdAt: 'desc' },
         omit: { password: true },
       });
-
-      await service.getAllUsers(true);
-      expect(mockPrisma.user.findMany).toHaveBeenCalledWith({
-        where: undefined,
-        omit: { password: true },
+      expect(result).toEqual({
+        data: [mockSafeUser],
+        meta: { total: 1, page: 1, limit: 10, lastPage: 1 },
       });
+    });
+
+    it('drops the archived filter and applies the role filter when requested', async () => {
+      await service.getAllUsers({ ...query, includeArchived: true, role: 'OPERATOR' as const });
+
+      expect(prismaService.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { AND: [{ role: 'OPERATOR' }] } }),
+      );
+    });
+
+    it('searches names and email, and adds an exact id match for UUID input', async () => {
+      await service.getAllUsers({ ...query, search: '  juan  ' });
+
+      expect(prismaService.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              { isArchived: false },
+              {
+                OR: [
+                  { firstName: { contains: 'juan', mode: 'insensitive' } },
+                  { lastName: { contains: 'juan', mode: 'insensitive' } },
+                  { email: { contains: 'juan', mode: 'insensitive' } },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+
+      await service.getAllUsers({ ...query, search: mockUser.id });
+
+      expect(prismaService.user.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              { isArchived: false },
+              { OR: [{ id: mockUser.id }, expect.anything(), expect.anything(), expect.anything()] },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('skips forward for later pages', async () => {
+      await service.getAllUsers({ ...query, page: 3, limit: 20 });
+
+      expect(prismaService.user.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 40, take: 20 }));
     });
   });
 
   describe('findUserById', () => {
-    it('returns null for an archived user by default, but returns it when includeArchived is true', async () => {
-      const { password, ...archivedUser } = { ...mockUser, isArchived: true };
-      mockPrisma.user.findUnique.mockResolvedValue(archivedUser);
+    it('hides archived users from the authentication path unless explicitly included', async () => {
+      const archivedUser = { ...mockSafeUser, isArchived: true };
+      prismaService.user.findUnique.mockResolvedValue(archivedUser);
 
-      await expect(service.findUserById('user-uuid-1')).resolves.toBeNull();
-      await expect(service.findUserById('user-uuid-1', true)).resolves.toEqual(archivedUser);
+      await expect(service.findUserById(mockUser.id)).resolves.toBeNull();
+      await expect(service.findUserById(mockUser.id, true)).resolves.toEqual(archivedUser);
+    });
+  });
+
+  describe('getUserById', () => {
+    it('returns archived users so the management detail screen stays reachable', async () => {
+      const archivedUser = { ...mockSafeUser, isArchived: true };
+      prismaService.user.findUnique.mockResolvedValue(archivedUser);
+
+      await expect(service.getUserById(mockUser.id)).resolves.toEqual(archivedUser);
+    });
+
+    it('throws NotFoundException when the user does not exist', async () => {
+      prismaService.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.getUserById(mockUser.id)).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('updateUser', () => {
     it('throws NotFoundException when the user does not exist', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(null);
+      prismaService.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.updateUser('nonexistent-uuid', { firstName: 'New' })).rejects.toThrow(
-        NotFoundException
-      );
-      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      await expect(service.updateUser(mockUser.id, { firstName: 'New' })).rejects.toThrow(NotFoundException);
+      expect(transactionClient.user.update).not.toHaveBeenCalled();
     });
 
     it('throws ConflictException when the user is archived', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ ...mockUser, isArchived: true });
+      prismaService.user.findUnique.mockResolvedValue({ ...mockUser, isArchived: true });
 
-      await expect(
-        service.updateUser('user-uuid-1', { firstName: 'New' })
-      ).rejects.toThrow(ConflictException);
-      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      await expect(service.updateUser(mockUser.id, { firstName: 'New' })).rejects.toThrow(ConflictException);
+      expect(transactionClient.user.update).not.toHaveBeenCalled();
     });
 
-    it('throws ForbiddenException when attempting to set role to SUPER_ADMIN', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(mockUser);
+    it('throws BadRequestException when no updatable field is supplied', async () => {
+      prismaService.user.findUnique.mockResolvedValue(mockUser);
+
+      await expect(service.updateUser(mockUser.id, {})).rejects.toThrow(BadRequestException);
+      expect(transactionClient.user.update).not.toHaveBeenCalled();
+    });
+
+    it('throws ForbiddenException when promoting anyone to SUPER_ADMIN', async () => {
+      prismaService.user.findUnique.mockResolvedValue(mockUser);
 
       await expect(
-        service.updateUser('user-uuid-1', { role: 'SUPER_ADMIN' as const })
+        service.updateUser(mockUser.id, { role: 'SUPER_ADMIN' as const }, 'actor-1'),
       ).rejects.toThrow(ForbiddenException);
-      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      expect(transactionClient.user.update).not.toHaveBeenCalled();
     });
 
-    it('updates non-email, non-password fields directly', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(mockUser);
-      const { password, ...safeUser } = { ...mockUser, firstName: 'Updated' };
-      mockPrisma.user.update.mockResolvedValue(safeUser);
-
-      const result = await service.updateUser('user-uuid-1', { firstName: 'Updated' });
-
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-uuid-1' },
-        data: { firstName: 'Updated' },
-        omit: { password: true },
-      });
-      expect(result).toEqual(safeUser);
-    });
-
-    it('normalizes email and skips the conflict check when unchanged after normalization', async () => {
-      mockPrisma.user.findUnique.mockResolvedValueOnce(mockUser);
-      const { password, ...safeUser } = mockUser;
-      mockPrisma.user.update.mockResolvedValue(safeUser);
-
-      await service.updateUser('user-uuid-1', { email: 'Juan@Example.com' });
-
-      expect(mockPrisma.user.findUnique).toHaveBeenCalledTimes(1);
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-uuid-1' },
-        data: { email: 'juan@example.com' },
-        omit: { password: true },
-      });
-    });
-
-    it('throws ConflictException when the new email belongs to another user', async () => {
-      mockPrisma.user.findUnique
-        .mockResolvedValueOnce(mockUser)
-        .mockResolvedValueOnce({ ...mockUser, id: 'other-uuid' });
+    it('throws ForbiddenException when the actor changes their own role', async () => {
+      prismaService.user.findUnique.mockResolvedValue(mockUser);
 
       await expect(
-        service.updateUser('user-uuid-1', { email: 'taken@example.com' })
-      ).rejects.toThrow(ConflictException);
-      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+        service.updateUser(mockUser.id, { role: 'OPERATOR' as const }, mockUser.id),
+      ).rejects.toThrow(ForbiddenException);
+      expect(transactionClient.user.update).not.toHaveBeenCalled();
     });
 
-    it('hashes the password when provided, and never returns a password field', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(mockUser);
-      const { password, ...safeUser } = mockUser;
-      mockPrisma.user.update.mockResolvedValue(safeUser);
+    it('allows the actor to edit their own non-role fields', async () => {
+      prismaService.user.findUnique.mockResolvedValue(mockUser);
+      transactionClient.user.update.mockResolvedValue(mockSafeUser);
 
-      const result = await service.updateUser('user-uuid-1', { password: 'newpassword123' });
+      await expect(service.updateUser(mockUser.id, { firstName: 'Self' }, mockUser.id)).resolves.toEqual(mockSafeUser);
+    });
+
+    it('normalizes email, hashes the password, and audits the changed field names', async () => {
+      prismaService.user.findUnique.mockResolvedValue(mockUser);
+      transactionClient.user.update.mockResolvedValue(mockSafeUser);
+
+      const result = await service.updateUser(
+        mockUser.id,
+        { email: ' NEW@Example.com ', password: 'newpassword123' },
+        'actor-1',
+      );
 
       expect(bcrypt.hash).toHaveBeenCalledWith('newpassword123', 10);
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-uuid-1' },
-        data: { password: 'hashed-password' },
+      expect(transactionClient.user.update).toHaveBeenCalledWith({
+        where: { id: mockUser.id },
+        data: { email: 'new@example.com', password: 'hashed-password' },
         omit: { password: true },
       });
+      expect(auditLogsService.recordAuditLog).toHaveBeenCalledWith({
+        actorId: 'actor-1',
+        action: 'UPDATE_USER',
+        entityType: 'User',
+        entityId: mockUser.id,
+        metadata: { fields: ['email', 'password'] },
+      }, transactionClient);
       expect(result).not.toHaveProperty('password');
+    });
+
+    it('translates a unique-email violation into ConflictException', async () => {
+      prismaService.user.findUnique.mockResolvedValue(mockUser);
+      transactionClient.user.update.mockRejectedValue(uniqueEmailError);
+
+      await expect(service.updateUser(mockUser.id, { email: 'taken@example.com' })).rejects.toThrow(ConflictException);
     });
   });
 
   describe('archiveUser / unarchiveUser', () => {
-    it('throws NotFoundException when Prisma reports the row does not exist (P2025)', async () => {
-      const notFoundError = new Prisma.PrismaClientKnownRequestError('No record found', {
-        code: 'P2025',
-        clientVersion: 'test',
-      });
-      mockPrisma.user.update.mockRejectedValue(notFoundError);
-
-      await expect(service.archiveUser('nonexistent-uuid')).rejects.toThrow(NotFoundException);
-      await expect(service.unarchiveUser('nonexistent-uuid')).rejects.toThrow(NotFoundException);
+    it('refuses to archive the acting account', async () => {
+      await expect(service.archiveUser(mockUser.id, mockUser.id)).rejects.toThrow(ForbiddenException);
+      expect(prismaService.user.findUnique).not.toHaveBeenCalled();
     });
 
-    it('re-throws unrelated errors from Prisma without converting them', async () => {
-      const otherError = new Error('connection lost');
-      mockPrisma.user.update.mockRejectedValue(otherError);
+    it('throws NotFoundException when the user does not exist', async () => {
+      prismaService.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.archiveUser('user-uuid-1')).rejects.toThrow('connection lost');
+      await expect(service.archiveUser(mockUser.id, 'actor-1')).rejects.toThrow(NotFoundException);
+      await expect(service.unarchiveUser(mockUser.id, 'actor-1')).rejects.toThrow(NotFoundException);
+      expect(transactionClient.user.update).not.toHaveBeenCalled();
     });
 
-    it('archiveUser sets isArchived to true, unarchiveUser sets it back to false', async () => {
-      const { password, ...archived } = { ...mockUser, isArchived: true };
-      mockPrisma.user.update.mockResolvedValueOnce(archived);
+    it('flips isArchived and audits both directions', async () => {
+      prismaService.user.findUnique.mockResolvedValue({ id: mockUser.id });
+      transactionClient.user.update.mockResolvedValue({ ...mockSafeUser, isArchived: true });
 
-      const archiveResult = await service.archiveUser('user-uuid-1');
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-uuid-1' },
+      const archived = await service.archiveUser(mockUser.id, 'actor-1');
+
+      expect(transactionClient.user.update).toHaveBeenCalledWith({
+        where: { id: mockUser.id },
         data: { isArchived: true },
         omit: { password: true },
       });
-      expect(archiveResult.isArchived).toBe(true);
+      expect(auditLogsService.recordAuditLog).toHaveBeenCalledWith({
+        actorId: 'actor-1',
+        action: 'ARCHIVE_USER',
+        entityType: 'User',
+        entityId: mockUser.id,
+        metadata: undefined,
+      }, transactionClient);
+      expect(archived.isArchived).toBe(true);
 
-      const { password: _pw, ...restored } = { ...mockUser, isArchived: false };
-      mockPrisma.user.update.mockResolvedValueOnce(restored);
+      transactionClient.user.update.mockResolvedValue(mockSafeUser);
 
-      const unarchiveResult = await service.unarchiveUser('user-uuid-1');
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-uuid-1' },
-        data: { isArchived: false },
-        omit: { password: true },
-      });
-      expect(unarchiveResult.isArchived).toBe(false);
+      const restored = await service.unarchiveUser(mockUser.id, 'actor-1');
+
+      expect(auditLogsService.recordAuditLog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ action: 'UNARCHIVE_USER' }),
+        transactionClient,
+      );
+      expect(restored.isArchived).toBe(false);
     });
   });
 });

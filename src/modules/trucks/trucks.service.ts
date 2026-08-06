@@ -212,7 +212,7 @@ export class TrucksService {
   private buildTruckCreateData(body: CreateTruckDTO): Prisma.TruckCreateInput {
     return {
       plateNumber: this.normalizePlateNumber(body.plateNumber),
-      model: body.model.trim(),
+      model: body.model?.trim() ?? null,
     };
   }
 
