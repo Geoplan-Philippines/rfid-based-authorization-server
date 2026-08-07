@@ -3,6 +3,9 @@
 /node_modules
 /build
 
+# incremental build state — machine-local, never commit or deploy it
+*.tsbuildinfo
+
 # Logs
 logs
 *.log

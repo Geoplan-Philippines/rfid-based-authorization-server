@@ -1,4 +1,21 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+  "compilerOptions": {
+    "rootDir": "./src",
+    // nest's deleteOutDir wipes dist/ without clearing the tsbuildinfo that
+    // describes it. A leftover one — especially copied between machines by a
+    // deploy — makes tsc believe the output is current and emit nothing, so the
+    // build "succeeds" with no dist/main.js. A production build is cheap; never
+    // let it depend on state that can outlive its own output.
+    "incremental": false
+  },
+  "include": ["src/**/*"],
+  "exclude": [
+    "node_modules",
+    "test",
+    "dist",
+    "prisma",
+    "prisma.config.ts",
+    "**/*spec.ts"
+  ]
 }
