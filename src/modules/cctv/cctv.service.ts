@@ -28,24 +28,31 @@ export class CctvService {
 
     return [
       {
-        id: 'eagle_cam_sub',
-        name: 'Eagle Cement Sub Stream (Fast)',
-        channel: 'Channel 102',
-        resolution: 'SD (Fast Load)',
+        id: 'gate_dome',
+        name: 'Gate Dome Camera',
+        channel: 'Overview / PTZ',
+        resolution: 'HD Main Stream (1080p)',
         isOnline,
       },
       {
-        id: 'eagle_cam_main',
-        name: 'Eagle Cement Main Stream (HD)',
-        channel: 'Channel 101',
-        resolution: 'HD 720p/1080p',
+        id: 'gate_face',
+        name: 'Gate Face Camera',
+        channel: 'Driver ID Recognition',
+        resolution: 'HD Main Stream (1080p)',
+        isOnline,
+      },
+      {
+        id: 'gate_plate',
+        name: 'Gate Plate Camera',
+        channel: 'Plate Reader',
+        resolution: 'HD Main Stream (1080p)',
         isOnline,
       },
     ];
   }
 
   async handleWhepOffer(dto: WhepOfferDto): Promise<{ sdp: string }> {
-    const streamId = dto.streamId || 'eagle_cam_sub';
+    const streamId = dto.streamId || 'gate_dome';
     const url = `${this.go2rtcUrl}/api/webrtc?src=${encodeURIComponent(streamId)}`;
 
     try {
