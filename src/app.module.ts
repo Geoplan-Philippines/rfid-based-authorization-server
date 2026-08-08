@@ -22,6 +22,7 @@ import { RfidTagsModule } from './modules/rfid-tags/rfid-tags.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { CctvModule } from './modules/cctv/cctv.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { ReportsModule } from './modules/reports/reports.module';
     ReportsModule,
     AuditLogsModule,
     ApiKeysModule,
+    CctvModule,
   ],
   controllers: [AppController],
   providers: [
