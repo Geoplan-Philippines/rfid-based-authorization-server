@@ -160,7 +160,11 @@ export class CctvService {
   private async grabFrame(src: string): Promise<ArrayBuffer> {
     const url = `${this.go2rtcUrl}/api/frame.jpeg?src=${encodeURIComponent(src)}`;
     let lastErr = '';
-    for (let attempt = 0; attempt < 4; attempt++) {
+    // A cold producer (no active viewer) needs several seconds to open the RTSP
+    // session and receive its first keyframe, during which frame.jpeg returns an
+    // empty 200. Once a viewer keeps it warm, the first attempt succeeds. Budget
+    // ~8s so the first poll works even before the WebRTC video has connected.
+    for (let attempt = 0; attempt < 16; attempt++) {
       try {
         const res = await fetch(url);
         if (res.ok) {
@@ -173,7 +177,7 @@ export class CctvService {
       } catch (err) {
         lastErr = String(err);
       }
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 500));
     }
     this.logger.warn(`Could not grab frame for '${src}': ${lastErr}`);
     throw new ServiceUnavailableException('Camera stream is not producing frames yet');
