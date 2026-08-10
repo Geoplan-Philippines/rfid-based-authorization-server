@@ -15,11 +15,13 @@ export const transactionDetailInclude = {
   rfidTag: true,
   truck: {
     include: {
-      // Active assignment only; used to flag captured-driver vs assigned-driver mismatches.
+      // All active assignments (PRIMARY + RELIEF) — a truck can have more than one, and face
+      // matching must check membership across the full set, not just an arbitrary row. Ordered
+      // PRIMARY-first (enum declaration order) so the single-driver display fields stay stable.
       driverAssignments: {
         where: { status: TruckDriverAssignmentStatus.ACTIVE },
         include: { driver: true },
-        take: 1,
+        orderBy: { role: 'asc' },
       },
     },
   },
@@ -33,10 +35,11 @@ export const transactionDetailInclude = {
 // (plate/face/barrier) need to patch the current event. `rfidTag` is included so plate/face reads
 // can recompute the result from the real tag state (matched? active?) rather than assuming the tag
 // was valid — an unknown or deactivated tag's result must stay UNKNOWN_TAG/DENIED through the
-// pipeline. `truck` is nullable (absent for an unknown tag).
+// pipeline. `truck` is nullable (absent for an unknown tag). All active assignments are included
+// (not just one) — see the note on `transactionDetailInclude` above.
 export const openTransactionInclude = {
   rfidTag: true,
-  truck: { include: { driverAssignments: { where: { status: TruckDriverAssignmentStatus.ACTIVE }, take: 1 } } },
+  truck: { include: { driverAssignments: { where: { status: TruckDriverAssignmentStatus.ACTIVE } } } },
   verification: true,
 } satisfies Prisma.GateEventInclude;
 
@@ -101,7 +104,7 @@ export interface TransactionDetail {
   verification: TransactionVerification | null;
   timeline: TransactionTimelineEvent[];
   rfidTag: { epcId: string; status: RFIDTagStatus; assignedTruckPlate: string | null } | null;
-  truck: { plateNumber: string; model: string | null; assignedDriver: DriverSummary | null } | null;
+  truck: { plateNumber: string; model: string | null; assignedDriver: DriverSummary | null; assignedDrivers: DriverSummary[] } | null;
   truckInRegistry: boolean;
   driver: (DriverSummary & { id: string }) | null;
   // True when the event's recorded driver matches the truck's active assignment.

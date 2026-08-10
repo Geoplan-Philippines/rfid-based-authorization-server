@@ -3,6 +3,7 @@ import { GateEventResult } from '@prisma/client';
 
 import { TransactionsController } from './transactions.controller';
 import { TransactionsService } from './transactions.service';
+import { PrismaService } from '../../core/database/prisma.service';
 
 describe('TransactionsController', () => {
   let controller: TransactionsController;
@@ -21,6 +22,10 @@ describe('TransactionsController', () => {
       controllers: [TransactionsController],
       providers: [
         { provide: TransactionsService, useValue: transactionsService },
+        // ApiKeyGuard (rfid-reads / face-reads) is instantiated by Nest from @UseGuards
+        // metadata even in an isolated controller test, so its own PrismaService dependency
+        // must be satisfiable.
+        { provide: PrismaService, useValue: {} },
       ],
     }).compile();
 

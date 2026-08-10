@@ -186,16 +186,18 @@ export class TransactionsService {
       throw new ConflictException('Face read already recorded for this transaction');
     }
 
-    const assignedDriverId = event.truck?.driverAssignments[0]?.driverId ?? null;
+    // A truck may have several ACTIVE assignments (PRIMARY + RELIEF). The recognised
+    // driver matches if they hold ANY active assignment on this truck.
+    const assignedDriverIds = event.truck?.driverAssignments.map((assignment) => assignment.driverId) ?? [];
 
     if (body.driverId) {
       const driver = await this.prisma.driver.findUnique({ where: { id: body.driverId } });
       if (!driver) throw new BadRequestException('Recognised driver does not exist');
     }
 
-    // Match = the recognised driver is the one assigned to this truck. An unrecognised face
-    // (no driverId) is a non-match.
-    const faceMatched = body.driverId !== undefined && body.driverId === assignedDriverId;
+    // Match = the recognised driver holds any active assignment on this truck. An unrecognised
+    // face (no driverId) is a non-match.
+    const faceMatched = body.driverId !== undefined && assignedDriverIds.includes(body.driverId);
 
     // The result is recomputed from the real tag state so a flagged transaction (unknown or
     // deactivated tag) keeps its result. A valid (matched + active) tag is the RFID-only auto-open

@@ -13,6 +13,7 @@ $backupDirectory = Join-Path $repositoryRoot "backups"
 Assert-PostgreSqlCommand "pg_restore"
 Assert-PostgreSqlCommand "dropdb"
 Assert-PostgreSqlCommand "createdb"
+Assert-PostgreSqlCommand "psql"
 
 $database = Get-DatabaseConfig -RepositoryRoot $repositoryRoot
 
@@ -105,6 +106,19 @@ try {
 
   if ($LASTEXITCODE -ne 0) {
     throw "Could not create the empty database."
+  }
+
+  Write-Host "Enabling required extensions..."
+
+  & psql `
+    "--host=$($database.Host)" `
+    "--port=$($database.Port)" `
+    "--username=$($database.User)" `
+    "--dbname=$($database.Name)" `
+    "--command=CREATE EXTENSION IF NOT EXISTS vector;"
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not enable the vector extension on the fresh database."
   }
 
   Write-Host "Importing the backup..."

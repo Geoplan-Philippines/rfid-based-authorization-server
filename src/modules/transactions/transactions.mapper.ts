@@ -24,7 +24,12 @@ export function toTransactionListItem(event: GateEventListPayload): TransactionL
 }
 
 export function toTransactionDetail(event: GateEventDetailPayload): TransactionDetail {
-  const assignedDriver = event.truck?.driverAssignments[0]?.driver ?? null;
+  // Ordered PRIMARY-first by the query (transactionDetailInclude). May hold several rows —
+  // PRIMARY + RELIEF — so single-driver display fields take the first while faceMatchesAssigned
+  // checks the whole set.
+  const assignedDriverRows = event.truck?.driverAssignments.map((assignment) => assignment.driver) ?? [];
+  const assignedDriver = assignedDriverRows[0] ?? null;
+  const assignedDrivers = assignedDriverRows.map((driver) => ({ firstName: driver.firstName, lastName: driver.lastName }));
 
   return {
     id: event.id,
@@ -57,12 +62,14 @@ export function toTransactionDetail(event: GateEventDetailPayload): TransactionD
           plateNumber: event.truck.plateNumber,
           model: event.truck.model,
           assignedDriver: assignedDriver ? { firstName: assignedDriver.firstName, lastName: assignedDriver.lastName } : null,
+          assignedDrivers,
         }
       : null,
     truckInRegistry: event.truck !== null,
     driver: event.driver ? { id: event.driver.id, firstName: event.driver.firstName, lastName: event.driver.lastName } : null,
     // Meaningful only after the face stage has run; before that the event has no recognised driver.
-    faceMatchesAssigned: assignedDriver !== null && event.driverId === assignedDriver.id,
+    // True if the recognised driver holds ANY active assignment on this truck (PRIMARY or RELIEF).
+    faceMatchesAssigned: event.driverId !== null && assignedDriverRows.some((driver) => driver.id === event.driverId),
     snapshots: event.snapshots.map((snapshot) => ({ id: snapshot.id, type: snapshot.type, imageUrl: snapshot.imageUrl })),
     isOpen: isTransactionOpen(event.timeline.some((entry) => entry.type === TimelineEventType.BARRIER_OPENED)),
   };

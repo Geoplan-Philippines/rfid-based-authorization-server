@@ -1,8 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
-import { GateEventResult, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
+import { AssignmentRole, GateEventResult, RFIDTagStatus, SnapshotType, TimelineEventType, TruckDriverAssignmentStatus } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
+import { EmailService } from '../email/email.service';
 import { TransactionsService } from './transactions.service';
 import { transactionDetailInclude } from './types/transactions.types';
 
@@ -12,25 +13,42 @@ describe('TransactionsService', () => {
     gateEvent: {
       findMany: jest.Mock;
       findUnique: jest.Mock;
+      findFirst: jest.Mock;
       count: jest.Mock;
       groupBy: jest.Mock;
+      update: jest.Mock;
     };
+    eventVerification: { update: jest.Mock };
+    gateTimelineEvent: { create: jest.Mock };
+    gateSnapshot: { create: jest.Mock };
+    driver: { findUnique: jest.Mock };
+    $transaction: jest.Mock;
   };
+  let emailService: { sendTransactionAlert: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
       gateEvent: {
         findMany: jest.fn(),
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
         count: jest.fn(),
         groupBy: jest.fn(),
+        update: jest.fn(),
       },
+      eventVerification: { update: jest.fn() },
+      gateTimelineEvent: { create: jest.fn() },
+      gateSnapshot: { create: jest.fn() },
+      driver: { findUnique: jest.fn() },
+      $transaction: jest.fn().mockResolvedValue(undefined),
     };
+    emailService = { sendTransactionAlert: jest.fn().mockResolvedValue({ skipped: true }) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TransactionsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: EmailService, useValue: emailService },
       ],
     }).compile();
 
@@ -194,6 +212,12 @@ describe('TransactionsService', () => {
           firstName: 'Juan',
           lastName: 'Dela Cruz',
         },
+        assignedDrivers: [
+          {
+            firstName: 'Juan',
+            lastName: 'Dela Cruz',
+          },
+        ],
       },
       truckInRegistry: true,
       driver: {
@@ -217,5 +241,64 @@ describe('TransactionsService', () => {
     prisma.gateEvent.findUnique.mockResolvedValue(null);
 
     await expect(service.getTransactionById('missing-event')).rejects.toThrow(NotFoundException);
+  });
+
+  describe('recordFaceRead', () => {
+    it('matches when the recognised driver holds the RELIEF assignment, not just PRIMARY (D1)', async () => {
+      const occurredAt = new Date('2026-08-06T00:00:00.000Z');
+
+      // Open transaction: truck has both a PRIMARY and a RELIEF active assignment.
+      prisma.gateEvent.findFirst.mockResolvedValue({
+        id: 'event-2',
+        rfidTag: { id: 'tag-2', epcId: 'EPC-002', status: RFIDTagStatus.ACTIVE },
+        truck: {
+          id: 'truck-2',
+          driverAssignments: [
+            { truckId: 'truck-2', driverId: 'driver-primary', role: AssignmentRole.PRIMARY, status: TruckDriverAssignmentStatus.ACTIVE },
+            { truckId: 'truck-2', driverId: 'driver-relief', role: AssignmentRole.RELIEF, status: TruckDriverAssignmentStatus.ACTIVE },
+          ],
+        },
+        verification: { faceMatched: null, plateMatched: null },
+      });
+      prisma.driver.findUnique.mockResolvedValue({ id: 'driver-relief' });
+      prisma.gateEvent.findUnique.mockResolvedValue({
+        id: 'event-2',
+        eventCode: 'GATE-0000002',
+        occurredAt,
+        result: GateEventResult.VERIFIED,
+        plateNumberRead: null,
+        driverId: 'driver-relief',
+        rfidTag: { epcId: 'EPC-002', status: RFIDTagStatus.ACTIVE },
+        truck: {
+          plateNumber: 'DEF-456',
+          model: null,
+          driverAssignments: [
+            { driverId: 'driver-primary', driver: { id: 'driver-primary', firstName: 'Primary', lastName: 'Driver' } },
+            { driverId: 'driver-relief', driver: { id: 'driver-relief', firstName: 'Relief', lastName: 'Driver' } },
+          ],
+        },
+        driver: { id: 'driver-relief', firstName: 'Relief', lastName: 'Driver' },
+        verification: {
+          rfidMatched: true,
+          plateMatched: null,
+          faceMatched: true,
+          plateConfidence: null,
+          faceConfidence: 0.9,
+          verifiedAt: occurredAt,
+        },
+        timeline: [],
+        snapshots: [],
+      });
+
+      const response = await service.recordFaceRead({ driverId: 'driver-relief', faceConfidence: 0.9 });
+
+      // The RELIEF driver is a member of the active-assignment set, so the service computes a match
+      // (this is the D1 fix: membership in the full set, not equality with an arbitrary single row).
+      expect(prisma.eventVerification.update).toHaveBeenCalledWith({
+        where: { gateEventId: 'event-2' },
+        data: expect.objectContaining({ faceMatched: true }),
+      });
+      expect(response.faceMatchesAssigned).toBe(true);
+    });
   });
 });

@@ -296,7 +296,10 @@ export class DriversService {
       throw new ConflictException('Driver with the same license number already exists');
     }
 
-    throw new ConflictException('Driver with the same name already exists');
+    // Generic fallback for any other unique constraint (license_number is the only one asserted
+    // above; firstName+lastName is deliberately NOT unique — 2 000+ drivers guarantees name
+    // collisions, see D9).
+    throw new ConflictException(target ? `Driver conflicts on unique field: ${target}` : 'Driver already exists');
   }
 
   private normalizeLicenseNumber(value: string): string {

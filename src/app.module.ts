@@ -23,6 +23,7 @@ import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { CctvModule } from './modules/cctv/cctv.module';
+import { FaceModule } from './modules/face/face.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { CctvModule } from './modules/cctv/cctv.module';
     AuditLogsModule,
     ApiKeysModule,
     CctvModule,
+    FaceModule,
   ],
   controllers: [AppController],
   providers: [

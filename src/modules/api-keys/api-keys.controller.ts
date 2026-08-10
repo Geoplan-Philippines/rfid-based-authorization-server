@@ -11,27 +11,25 @@ import { PassportJwtGuard } from '../auth/guards/passport-jwt.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
+// Every route here mints, lists or revokes device credentials, so the guards and role policy are
+// declared once at class level: a route added later is protected by default instead of public.
 @Controller('api-keys')
+@UseGuards(PassportJwtGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.SUPER_ADMIN)
 export class ApiKeysController {
   constructor(private readonly apiKeysService: ApiKeysService) {}
 
   @Post()
-  // @UseGuards(PassportJwtGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   createApiKey(@Body() createApiKeyDTO: CreateApiKeyDTO): Promise<CreatedApiKey> {
     return this.apiKeysService.createApiKey(createApiKeyDTO);
   }
 
   @Get()
-  // @UseGuards(PassportJwtGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   getAllApiKeys(@Query() query: GetAllApiKeysQueryDTO): Promise<PaginatedResponse<ApiKeyListItem>> {
     return this.apiKeysService.getAllApiKeys(query);
   }
 
   @Patch(':id/revoke')
-  @UseGuards(PassportJwtGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   revokeApiKey(@Param('id', ParseUUIDPipe) id: string): Promise<ApiKeyListItem> {
     return this.apiKeysService.revokeApiKey(id);
   }

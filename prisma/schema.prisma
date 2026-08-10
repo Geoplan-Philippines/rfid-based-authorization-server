@@ -3,11 +3,13 @@
 // Follow existing formatting, (alignment, spacing, ordering)
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
+  extensions = [vector]
 }
 
 model User {
@@ -52,9 +54,10 @@ model Driver {
 
   truckAssignments              TruckDriverAssignment[]
   gateEvents                    GateEvent[]
+  faceProfile                   FaceProfile?
+  faceRecognitionAttempts       FaceRecognitionAttempt[]
 
   @@map("drivers")
-  @@unique([firstName, lastName])
 }
 
 model Truck {
@@ -178,6 +181,7 @@ model GateEvent {
   verification                  EventVerification?
   snapshots                     GateSnapshot[]
   timeline                      GateTimelineEvent[]
+  faceRecognitionAttempts       FaceRecognitionAttempt[]
 
   createdAt                     DateTime                  @default(now()) @map("created_at")
   updatedAt                     DateTime                  @updatedAt @map("updated_at")
@@ -223,6 +227,94 @@ model GateTimelineEvent {
   @@index([gateEventId])
   @@index([type])
   @@map("gate_timeline_events")
+}
+
+model FaceProfile {
+  id                            String                    @id @default(uuid())
+  status                        FaceProfileStatus         @default(PENDING)
+  consentGivenAt                DateTime?                 @map("consent_given_at")
+  consentReference              String?                   @map("consent_reference")
+  enrolledAt                    DateTime?                 @map("enrolled_at")
+  enrolledById                  String?                   @map("enrolled_by_id")
+  disabledAt                    DateTime?                 @map("disabled_at")
+  disabledReason                String?                   @map("disabled_reason")
+  isArchived                    Boolean                   @default(false) @map("is_archived")
+
+  driverId                      String                    @unique @map("driver_id")
+  driver                        Driver                    @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  faceEmbeddings                FaceEmbedding[]
+
+  @@index([status])
+  @@index([isArchived])
+  @@map("face_profiles")
+}
+
+model FaceEmbedding {
+  id                            String                    @id @default(uuid())
+  angle                         FaceAngle
+  provider                      FaceEmbeddingProvider     @default(DEEPFACE)
+  model                         FaceEmbeddingModel        @default(ARCFACE)
+  embedding                     Unsupported("vector(512)")
+  imageUrl                      String                    @map("image_url")
+  qualityScore                  Float?                    @map("quality_score")
+  livenessScore                 Float?                    @map("liveness_score")
+  yaw                           Float?
+  pitch                         Float?
+  isArchived                    Boolean                   @default(false) @map("is_archived")
+
+  faceProfileId                 String                    @map("face_profile_id")
+  faceProfile                   FaceProfile               @relation(fields: [faceProfileId], references: [id], onDelete: Cascade)
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  // No HNSW index — deliberate. Exact sequential scan is ~5-10ms at the confirmed 2 000-driver /
+  // 8 000-embedding scale (100% recall). HNSW is approximate and can flip a true match into a
+  // false non-match. Do not add one reflexively in review; see docs/face/plan/04-data-model.md §4.3.
+  @@index([faceProfileId])
+  @@index([provider, model])
+  @@index([isArchived])
+  @@map("face_embeddings")
+}
+
+model FaceRecognitionAttempt {
+  id                            String                    @id @default(uuid())
+  outcome                       FaceRecognitionOutcome
+  enforcementMode               FaceEnforcementMode       @map("enforcement_mode")
+  cameraId                      String?                   @map("camera_id")
+  distance                      Float?
+  similarity                    Float?
+  margin                        Float?
+  livenessScore                 Float?                    @map("liveness_score")
+  qualityScore                  Float?                    @map("quality_score")
+  framesCaptured                Int                       @default(0) @map("frames_captured")
+  framesUsable                  Int                       @default(0) @map("frames_usable")
+  votes                         Int                       @default(0)
+  snapshotUrl                   String?                   @map("snapshot_url")
+  latencyMs                     Int?                      @map("latency_ms")
+  errorCode                     String?                   @map("error_code")
+  reviewedById                  String?                   @map("reviewed_by_id")
+  reviewedOutcome               FaceReviewOutcome?        @map("reviewed_outcome")
+  reviewedAt                    DateTime?                 @map("reviewed_at")
+
+  matchedDriverId               String?                   @map("matched_driver_id")
+  matchedDriver                 Driver?                   @relation(fields: [matchedDriverId], references: [id])
+
+  gateEventId                   String?                   @map("gate_event_id")
+  gateEvent                     GateEvent?                @relation(fields: [gateEventId], references: [id], onDelete: Cascade)
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  @@index([gateEventId])
+  @@index([matchedDriverId])
+  @@index([outcome])
+  @@index([createdAt])
+  @@map("face_recognition_attempts")
 }
 
 enum Role {
@@ -275,4 +367,52 @@ enum TimelineEventType {
   FACE_MATCHED
   BARRIER_OPENED
   MANUAL_OVERRIDE
+}
+
+enum FaceProfileStatus {
+  PENDING
+  ACTIVE
+  DISABLED
+  NEEDS_REENROLLMENT
+}
+
+enum FaceAngle {
+  FRONT
+  DOWN
+  LEFT
+  RIGHT
+}
+
+enum FaceEmbeddingProvider {
+  DEEPFACE
+  INSIGHTFACE
+}
+
+enum FaceEmbeddingModel {
+  ARCFACE
+  FACENET512
+  SFACE
+}
+
+enum FaceEnforcementMode {
+  OFF
+  SHADOW
+  ACTIVE
+}
+
+enum FaceRecognitionOutcome {
+  MATCHED
+  NO_MATCH
+  LOW_CONFIDENCE
+  AMBIGUOUS
+  NO_FACE_DETECTED
+  POOR_QUALITY
+  SPOOF_DETECTED
+  SERVICE_ERROR
+}
+
+enum FaceReviewOutcome {
+  CONFIRMED_CORRECT
+  CONFIRMED_WRONG
+  UNCLEAR
 }
