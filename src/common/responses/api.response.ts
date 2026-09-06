@@ -1,4 +1,4 @@
-import { PaginatedResponse } from "./paginated-api.response";
+import { PaginatedResponse } from './paginated-api.response';
 
 export interface ApiResponse<T> {
   statusCode: number;

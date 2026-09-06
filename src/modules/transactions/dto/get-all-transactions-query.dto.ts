@@ -5,12 +5,12 @@ import { GateEventResult } from '@prisma/client';
 
 export class GetAllTransactionsQueryDTO extends PaginationQueryDTO {
   @IsOptional()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   search?: string;
 
   @IsOptional()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
   @IsEnum(GateEventResult)
   result?: GateEventResult;
 }

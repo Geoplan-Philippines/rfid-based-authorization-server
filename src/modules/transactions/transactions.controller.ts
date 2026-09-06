@@ -11,6 +11,7 @@ import { PassportJwtGuard } from '../auth/guards/passport-jwt.guard';
 import { ApiKeyGuard } from '../api-keys/guards/api-key.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/types/auth.types';
+import { FaceGateService } from '../face/face-gate.service';
 
 // TODO: Apply RolesGuard and @Roles() decorator to the operator-facing routes.
 // The ingestion routes below are the contracts each gate device/service POSTs to. They are
@@ -18,7 +19,10 @@ import type { AuthenticatedUser } from '../auth/types/auth.types';
 // human-login JWT. barrier-events stays JWT-guarded: it records the acting operator.
 @Controller('transactions')
 export class TransactionsController {
-  constructor(private readonly transactionsService: TransactionsService) {}
+  constructor(
+    private readonly transactionsService: TransactionsService,
+    private readonly faceGateService: FaceGateService,
+  ) {}
 
   @Get()
   // @UseGuards(PassportJwtGuard)
@@ -36,7 +40,9 @@ export class TransactionsController {
   @Post('rfid-reads')
   @UseGuards(ApiKeyGuard)
   async recordRfidRead(@Body() body: RecordRfidReadDTO): Promise<TransactionDetail> {
-    return this.transactionsService.recordRfidRead(body);
+    const transaction = await this.transactionsService.recordRfidRead(body);
+    void this.faceGateService.armCapture(transaction.id).catch(() => undefined);
+    return transaction;
   }
 
   // Stage 2 — plate-recognition (OCR) service. Patches the latest open transaction.

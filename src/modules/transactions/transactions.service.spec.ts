@@ -3,9 +3,30 @@ import { NotFoundException } from '@nestjs/common';
 import { AssignmentRole, GateEventResult, RFIDTagStatus, SnapshotType, TimelineEventType, TruckDriverAssignmentStatus } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
+import { env } from '../../core/config/env.config';
 import { EmailService } from '../email/email.service';
 import { TransactionsService } from './transactions.service';
-import { transactionDetailInclude } from './types/transactions.types';
+import { boundFaceTransactionInclude, transactionDetailInclude } from './types/transactions.types';
+
+type TransactionWhere = {
+  AND: Array<{
+    OR?: unknown[];
+    result?: GateEventResult;
+  }>;
+};
+
+type EventVerificationUpdateInput = {
+  where: { gateEventId: string };
+  data: {
+    faceMatched?: boolean;
+    faceConfidence?: number | null;
+    verifiedAt?: Date;
+  };
+};
+
+type TimelineCreateInput = {
+  data: { type: TimelineEventType };
+};
 
 describe('TransactionsService', () => {
   let service: TransactionsService;
@@ -88,7 +109,9 @@ describe('TransactionsService', () => {
       result: GateEventResult.VERIFIED,
     });
 
-    const listWhere = prisma.gateEvent.findMany.mock.calls[0][0].where;
+    const listCalls = prisma.gateEvent.findMany.mock.calls as unknown as Array<[{ where: TransactionWhere }]>;
+    const listArguments = listCalls[0][0];
+    const listWhere = listArguments.where;
     expect(listWhere.AND).toContainEqual({ result: GateEventResult.VERIFIED });
     expect(listWhere.AND[0].OR).toEqual(expect.arrayContaining([
       { eventCode: { contains: 'ABC', mode: 'insensitive' } },
@@ -99,7 +122,9 @@ describe('TransactionsService', () => {
 
     expect(prisma.gateEvent.count).toHaveBeenCalledWith({ where: listWhere });
 
-    const countsWhere = prisma.gateEvent.groupBy.mock.calls[0][0].where;
+    const countCalls = prisma.gateEvent.groupBy.mock.calls as unknown as Array<[{ where: TransactionWhere }]>;
+    const countArguments = countCalls[0][0];
+    const countsWhere = countArguments.where;
     expect(countsWhere.AND).toHaveLength(1);
     expect(countsWhere.AND[0]).toEqual(listWhere.AND[0]);
 
@@ -169,6 +194,7 @@ describe('TransactionsService', () => {
           imageUrl: 'https://placeholder.local/plate.jpg',
         },
       ],
+      faceRecognitionAttempts: [],
     });
 
     const response = await service.getTransactionById('event-1');
@@ -233,6 +259,7 @@ describe('TransactionsService', () => {
           imageUrl: 'https://placeholder.local/plate.jpg',
         },
       ],
+      faceRecognition: null,
       isOpen: true,
     });
   });
@@ -288,17 +315,150 @@ describe('TransactionsService', () => {
         },
         timeline: [],
         snapshots: [],
+        faceRecognitionAttempts: [],
       });
 
       const response = await service.recordFaceRead({ driverId: 'driver-relief', faceConfidence: 0.9 });
 
       // The RELIEF driver is a member of the active-assignment set, so the service computes a match
       // (this is the D1 fix: membership in the full set, not equality with an arbitrary single row).
-      expect(prisma.eventVerification.update).toHaveBeenCalledWith({
-        where: { gateEventId: 'event-2' },
-        data: expect.objectContaining({ faceMatched: true }),
-      });
+      const updateCalls = prisma.eventVerification.update.mock.calls as unknown as Array<[EventVerificationUpdateInput]>;
+      const updateInput = updateCalls[0][0];
+      expect(updateInput.where).toEqual({ gateEventId: 'event-2' });
+      expect(updateInput.data.faceMatched).toBe(true);
+      expect(updateInput.data.faceConfidence).toBe(0.9);
+      expect(updateInput.data.verifiedAt).toBeInstanceOf(Date);
       expect(response.faceMatchesAssigned).toBe(true);
+    });
+
+    it('binds an asynchronous face result to its explicit gate event instead of FIFO lookup (D3)', async () => {
+      const occurredAt = new Date('2026-08-06T00:00:00.000Z');
+      prisma.gateEvent.findUnique
+        .mockResolvedValueOnce({
+          id: 'bound-event',
+          rfidTag: { id: 'tag-1', epcId: 'EPC-1', status: RFIDTagStatus.ACTIVE },
+          truck: {
+            id: 'truck-1',
+            driverAssignments: [
+              { driverId: 'driver-1', role: AssignmentRole.PRIMARY, status: TruckDriverAssignmentStatus.ACTIVE },
+            ],
+          },
+          verification: { faceMatched: null, plateMatched: true },
+          timeline: [],
+        })
+        .mockResolvedValueOnce({
+          id: 'bound-event',
+          eventCode: 'GATE-BOUND',
+          occurredAt,
+          result: GateEventResult.VERIFIED,
+          plateNumberRead: 'ABC-123',
+          driverId: 'driver-1',
+          rfidTag: { epcId: 'EPC-1', status: RFIDTagStatus.ACTIVE },
+          truck: {
+            plateNumber: 'ABC-123',
+            model: null,
+            driverAssignments: [
+              { driverId: 'driver-1', driver: { id: 'driver-1', firstName: 'Juan', lastName: 'Cruz' } },
+            ],
+          },
+          driver: { id: 'driver-1', firstName: 'Juan', lastName: 'Cruz' },
+          verification: {
+            rfidMatched: true,
+            plateMatched: true,
+            faceMatched: true,
+            plateConfidence: 0.9,
+            faceConfidence: 0.8,
+            verifiedAt: occurredAt,
+          },
+          timeline: [],
+          snapshots: [],
+          faceRecognitionAttempts: [],
+        });
+      prisma.driver.findUnique.mockResolvedValue({ id: 'driver-1' });
+
+      await service.recordFaceReadForEvent('bound-event', {
+        attemptId: 'attempt-1',
+        driverId: 'driver-1',
+        faceConfidence: 0.8,
+      });
+
+      expect(prisma.gateEvent.findFirst).not.toHaveBeenCalled();
+      expect(prisma.gateEvent.findUnique).toHaveBeenNthCalledWith(1, {
+        where: { id: 'bound-event' },
+        include: boundFaceTransactionInclude,
+      });
+      const updateCalls = prisma.eventVerification.update.mock.calls as unknown as Array<[EventVerificationUpdateInput]>;
+      const updateInput = updateCalls[0][0];
+      expect(updateInput.where).toEqual({ gateEventId: 'bound-event' });
+      expect(updateInput.data.faceMatched).toBe(true);
+      expect(updateInput.data.faceConfidence).toBe(0.8);
+      expect(updateInput.data.verifiedAt).toBeInstanceOf(Date);
+    });
+
+    it('keeps the valid-RFID auto-open policy for an ACTIVE face mismatch when blocking is off', async () => {
+      const occurredAt = new Date('2026-08-06T00:00:00.000Z');
+      const originalBlockSetting = env.FACE_BLOCK_BARRIER_ON_MISMATCH;
+      env.FACE_BLOCK_BARRIER_ON_MISMATCH = false;
+      prisma.gateEvent.findUnique
+        .mockResolvedValueOnce({
+          id: 'mismatch-event',
+          rfidTag: { id: 'tag-1', epcId: 'EPC-1', status: RFIDTagStatus.ACTIVE },
+          truck: {
+            id: 'truck-1',
+            driverAssignments: [
+              { driverId: 'driver-1', role: AssignmentRole.PRIMARY, status: TruckDriverAssignmentStatus.ACTIVE },
+            ],
+          },
+          verification: { faceMatched: null, plateMatched: null },
+          timeline: [],
+        })
+        .mockResolvedValueOnce({
+          id: 'mismatch-event',
+          eventCode: 'GATE-MISMATCH',
+          occurredAt,
+          result: GateEventResult.FACE_MISMATCH,
+          plateNumberRead: null,
+          driverId: null,
+          rfidTag: { epcId: 'EPC-1', status: RFIDTagStatus.ACTIVE },
+          truck: {
+            plateNumber: 'ABC-123',
+            model: null,
+            driverAssignments: [
+              { driverId: 'driver-1', driver: { id: 'driver-1', firstName: 'Juan', lastName: 'Cruz' } },
+            ],
+          },
+          driver: null,
+          verification: {
+            rfidMatched: true,
+            plateMatched: null,
+            faceMatched: false,
+            plateConfidence: null,
+            faceConfidence: null,
+            verifiedAt: occurredAt,
+          },
+          timeline: [
+            {
+              type: TimelineEventType.BARRIER_OPENED,
+              message: 'RFID-only policy',
+              metadata: null,
+              occurredAt,
+            },
+          ],
+          snapshots: [],
+          faceRecognitionAttempts: [],
+        });
+
+      try {
+        await service.recordFaceReadForEvent('mismatch-event', { attemptId: 'attempt-1' });
+      } finally {
+        env.FACE_BLOCK_BARRIER_ON_MISMATCH = originalBlockSetting;
+      }
+
+      const updateCalls = prisma.eventVerification.update.mock.calls as unknown as Array<[EventVerificationUpdateInput]>;
+      expect(updateCalls[0][0].data.faceMatched).toBe(false);
+      expect(updateCalls[0][0].data.verifiedAt).toBeInstanceOf(Date);
+      const timelineCalls = prisma.gateTimelineEvent.create.mock.calls as unknown as Array<[TimelineCreateInput]>;
+      expect(timelineCalls.map(([input]) => input.data.type)).toContain(TimelineEventType.BARRIER_OPENED);
     });
   });
 });

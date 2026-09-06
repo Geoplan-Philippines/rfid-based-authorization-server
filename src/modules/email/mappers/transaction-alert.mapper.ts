@@ -116,7 +116,7 @@ export class TransactionAlertMapper {
   /** Pull the operator email out of a MANUAL_OVERRIDE timeline entry's JSON metadata, if present. */
   private static operatorEmail(metadata: Prisma.JsonValue): string | null {
     if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
-      const value = (metadata as Prisma.JsonObject).operatorEmail;
+      const value = (metadata).operatorEmail;
       if (typeof value === 'string') return value;
     }
     return null;

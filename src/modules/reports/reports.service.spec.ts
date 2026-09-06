@@ -87,7 +87,7 @@ describe('ReportsService', () => {
       period: { from: '2026-07-08', to: '2026-07-14' },
       resultCounts: { PLATE_MISMATCH: 1 },
     });
-      openCount: 1,
+      1,
     expect(response.data[0]).toMatchObject({ result: GateEventResult.PLATE_MISMATCH, isOpen: true });
   });
 

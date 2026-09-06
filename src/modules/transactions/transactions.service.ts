@@ -12,7 +12,17 @@ import { RecordPlateReadDTO } from './dto/record-plate-read.dto';
 import { RecordFaceReadDTO } from './dto/record-face-read.dto';
 import { RecordBarrierEventDTO } from './dto/record-barrier-event.dto';
 import { AuthenticatedUser } from '../auth/types/auth.types';
-import { OpenTransaction, TransactionDetail, TransactionListResponse, TransactionResultCounts, openTransactionInclude, transactionDetailInclude, transactionListInclude } from './types/transactions.types';
+import {
+  BoundFaceTransaction,
+  OpenTransaction,
+  TransactionDetail,
+  TransactionListResponse,
+  TransactionResultCounts,
+  boundFaceTransactionInclude,
+  openTransactionInclude,
+  transactionDetailInclude,
+  transactionListInclude,
+} from './types/transactions.types';
 import { toTransactionDetail, toTransactionListItem } from './transactions.mapper';
 
 // --- Hardcoded fallbacks ----------------------------------------------------
@@ -29,6 +39,12 @@ const PLACEHOLDER_SNAPSHOT_URL = 'https://placeholder.local/snapshot.jpg'; // TO
 const EVENT_CODE_PREFIX = 'GATE';
 const EVENT_CODE_LENGTH = 7;
 const generateEventCode = (): string => `${EVENT_CODE_PREFIX}-${nanoid(EVENT_CODE_LENGTH)}`;
+
+export interface CompleteFaceStageInput {
+  attemptId: string;
+  outcome: string;
+  snapshotUrl?: string;
+}
 
 @Injectable()
 export class TransactionsService {
@@ -186,6 +202,81 @@ export class TransactionsService {
       throw new ConflictException('Face read already recorded for this transaction');
     }
 
+    return this.applyFaceRead(event, body);
+  }
+
+  // The asynchronous gate capture is bound to the RFID event that armed it. It must never fall
+  // back to FIFO lookup after waiting, because the original truck may already have left (D3).
+  async recordFaceReadForEvent(gateEventId: string, body: RecordFaceReadDTO): Promise<TransactionDetail> {
+    const event = await this.findBoundFaceTransaction(gateEventId);
+    if (event.timeline.length > 0) {
+      this.logger.warn(`TRANSACTION_ALREADY_CLOSED: face result ignored for ${gateEventId}`);
+      return this.getTransactionById(gateEventId);
+    }
+    if (event.verification?.faceMatched !== null && event.verification?.faceMatched !== undefined) {
+      this.logger.warn(`FACE_READ_ALREADY_RECORDED: duplicate face result ignored for ${gateEventId}`);
+      return this.getTransactionById(gateEventId);
+    }
+
+    return this.applyFaceRead(event, body);
+  }
+
+  // SHADOW mode and service failures still finish the terminal pipeline stage without writing a
+  // false face mismatch. On a valid RFID tag this preserves the existing auto-open policy while
+  // EventVerification.faceMatched remains null.
+  async completeFaceStageForEvent(
+    gateEventId: string,
+    input: CompleteFaceStageInput,
+  ): Promise<TransactionDetail> {
+    const event = await this.findBoundFaceTransaction(gateEventId);
+    if (event.timeline.length > 0) {
+      this.logger.warn(`TRANSACTION_ALREADY_CLOSED: face completion ignored for ${gateEventId}`);
+      return this.getTransactionById(gateEventId);
+    }
+
+    const { verified: rfidVerified } = this.getTagState(event);
+    const now = new Date();
+    const barrierOpenedAt = addMilliseconds(now, 1);
+    await this.prisma.$transaction([
+      this.prisma.gateTimelineEvent.create({
+        data: {
+          gateEventId,
+          type: TimelineEventType.FACE_CAPTURED,
+          message: input.outcome,
+          metadata: { attemptId: input.attemptId },
+          occurredAt: now,
+        },
+      }),
+      ...(input.snapshotUrl
+        ? [this.prisma.gateSnapshot.create({
+          data: { gateEventId, type: SnapshotType.FACE, imageUrl: input.snapshotUrl },
+        })]
+        : []),
+      ...(rfidVerified
+        ? [
+          this.prisma.gateTimelineEvent.create({
+            data: {
+              gateEventId,
+              type: TimelineEventType.BARRIER_OPENED,
+              message: 'RFID-only policy',
+              occurredAt: barrierOpenedAt,
+            },
+          }),
+          this.prisma.eventVerification.update({
+            where: { gateEventId },
+            data: { verifiedAt: barrierOpenedAt },
+          }),
+        ]
+        : []),
+    ]);
+
+    const detail = await this.getTransactionById(gateEventId);
+    if (rfidVerified) this.dispatchTransactionAlert(detail);
+    return detail;
+  }
+
+  private async applyFaceRead(event: OpenTransaction, body: RecordFaceReadDTO): Promise<TransactionDetail> {
+
     // A truck may have several ACTIVE assignments (PRIMARY + RELIEF). The recognised
     // driver matches if they hold ANY active assignment on this truck.
     const assignedDriverIds = event.truck?.driverAssignments.map((assignment) => assignment.driverId) ?? [];
@@ -216,6 +307,7 @@ export class TransactionsService {
 
     // +2ms places the barrier after this stage's timeline entries: FACE_CAPTURED (+0) and, when the
     // face matches, FACE_MATCHED (+1) — so the auto-open reads last in the ordering.
+    const shouldAutoOpen = rfidVerified && !(env.FACE_BLOCK_BARRIER_ON_MISMATCH && !faceMatched);
     const barrierOpenedAt = addMilliseconds(now, 2);
 
     await this.prisma.$transaction([
@@ -227,12 +319,18 @@ export class TransactionsService {
         where: { gateEventId: event.id },
         data: {
           faceMatched,
-          faceConfidence: body.faceConfidence ?? HARDCODED_FACE_CONFIDENCE,
-          ...(rfidVerified ? { verifiedAt: barrierOpenedAt } : {}),
+          faceConfidence: body.faceConfidence ?? (env.FACE_RECOGNITION_ENABLED ? null : HARDCODED_FACE_CONFIDENCE),
+          ...(shouldAutoOpen ? { verifiedAt: barrierOpenedAt } : {}),
         },
       }),
       this.prisma.gateTimelineEvent.create({
-        data: { gateEventId: event.id, type: TimelineEventType.FACE_CAPTURED, message: 'snapshot stored', occurredAt: now },
+        data: {
+          gateEventId: event.id,
+          type: TimelineEventType.FACE_CAPTURED,
+          message: body.snapshotUrl ? 'snapshot stored' : 'face result recorded',
+          metadata: body.attemptId ? { attemptId: body.attemptId } : undefined,
+          occurredAt: now,
+        },
       }),
       ...(faceMatched
         ? [
@@ -241,11 +339,17 @@ export class TransactionsService {
             }),
           ]
         : []),
-      this.prisma.gateSnapshot.create({
-        data: { gateEventId: event.id, type: SnapshotType.FACE, imageUrl: body.snapshotUrl ?? PLACEHOLDER_SNAPSHOT_URL },
-      }),
+      ...(body.snapshotUrl || !env.FACE_RECOGNITION_ENABLED
+        ? [this.prisma.gateSnapshot.create({
+          data: {
+            gateEventId: event.id,
+            type: SnapshotType.FACE,
+            imageUrl: body.snapshotUrl ?? PLACEHOLDER_SNAPSHOT_URL,
+          },
+        })]
+        : []),
       // RFID-only policy: a valid tag opens the barrier automatically at the end of the pipeline.
-      ...(rfidVerified
+      ...(shouldAutoOpen
         ? [
             this.prisma.gateTimelineEvent.create({
               data: { gateEventId: event.id, type: TimelineEventType.BARRIER_OPENED, message: 'RFID-only policy', occurredAt: barrierOpenedAt },
@@ -257,7 +361,7 @@ export class TransactionsService {
     const detail = await this.getTransactionById(event.id);
     // A flagged-but-auto-opened transaction (plate/face mismatch on a valid tag) still alerts
     // reviewers once it closes.
-    if (rfidVerified) this.dispatchTransactionAlert(detail);
+    if (shouldAutoOpen) this.dispatchTransactionAlert(detail);
     return detail;
   }
 
@@ -369,6 +473,9 @@ export class TransactionsService {
   // failure (or no configured recipients) must never fail the request — errors are logged instead.
   private dispatchTransactionAlert(transaction: TransactionDetail): void {
     if (transaction.result === GateEventResult.VERIFIED) return;
+    if (env.FACE_SUPPRESS_MISMATCH_ALERTS
+      && transaction.result === GateEventResult.FACE_MISMATCH
+      && transaction.faceRecognition?.outcome !== 'SPOOF_DETECTED') return;
 
     const recipients = env.TRANSACTION_ALERT_RECIPIENTS;
     if (recipients.length === 0) {
@@ -401,6 +508,15 @@ export class TransactionsService {
 
     if (!event) throw new NotFoundException('No open transaction to attach this read to');
 
+    return event;
+  }
+
+  private async findBoundFaceTransaction(gateEventId: string): Promise<BoundFaceTransaction> {
+    const event = await this.prisma.gateEvent.findUnique({
+      where: { id: gateEventId },
+      include: boundFaceTransactionInclude,
+    });
+    if (!event) throw new NotFoundException('Transaction not found');
     return event;
   }
 

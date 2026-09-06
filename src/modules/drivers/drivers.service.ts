@@ -68,6 +68,7 @@ export class DriversService {
             orderBy: { createdAt: 'desc' },
             include: { truck: { select: { id: true, plateNumber: true } } },
           },
+          faceProfile: { select: { status: true } },
         },
       }),
       this.prisma.driver.count({ where }),
@@ -88,6 +89,7 @@ export class DriversService {
           licenseNumber: driver.licenseNumber,
           photoUrl: driver.photoUrl,
           isArchived: driver.isArchived,
+          faceProfileStatus: driver.faceProfile?.status ?? null,
           trucksCount: driver.truckAssignments.length,
           trucks: driver.truckAssignments.slice(0, 3).map((assignment) => ({
             id: assignment.truck.id,
@@ -131,6 +133,7 @@ export class DriversService {
             },
           },
         },
+        faceProfile: { select: { status: true } },
       },
     });
 
@@ -149,6 +152,7 @@ export class DriversService {
       licenseNumber: driver.licenseNumber,
       photoUrl: driver.photoUrl,
       isArchived: driver.isArchived,
+      faceProfileStatus: driver.faceProfile?.status ?? null,
       trucks: driver.truckAssignments.map((assignment) => ({
         id: assignment.truck.id,
         plateNumber: assignment.truck.plateNumber,
@@ -234,30 +238,17 @@ export class DriversService {
     });
   }
 
-  async saveDriverPhoto(id: string, file: Express.Multer.File | undefined, actorId?: string): Promise<Driver> {
-    await this.ensureDriverExists(id);
-    const photoUrl = await this.imageUploadService.saveRegistryPhoto(file, 'drivers');
-
-    return this.prisma.$transaction(async (tx) => {
-      const driver = await tx.driver.update({ where: { id }, data: { photoUrl } });
-
-      await this.auditLogsService.recordAuditLog({
-        actorId,
-        action: 'UPLOAD_DRIVER_PHOTO',
-        entityType: 'Driver',
-        entityId: driver.id,
-        metadata: { photoUrl },
-      }, tx);
-
-      return driver;
-    });
-  }
-
   private buildListWhere(query: GetAllDriversQueryDTO): Prisma.DriverWhereInput {
     const filters: Prisma.DriverWhereInput[] = [];
     const search = query.search?.trim();
 
     if (!query.includeArchived) filters.push({ isArchived: false });
+
+    if (query.faceProfileStatus === 'NONE') {
+      filters.push({ faceProfile: { is: null } });
+    } else if (query.faceProfileStatus) {
+      filters.push({ faceProfile: { is: { status: query.faceProfileStatus } } });
+    }
 
     if (search) {
       filters.push({

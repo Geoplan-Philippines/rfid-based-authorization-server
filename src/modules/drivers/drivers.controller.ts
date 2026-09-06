@@ -8,14 +8,10 @@ import {
   Patch,
   Post,
   Query,
-  UploadedFile,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { Driver } from '@prisma/client';
 
-import { IMAGE_UPLOAD_OPTIONS } from 'src/common/uploads/image-upload.constants';
 import { CreateDriverDTO } from './dto/create-driver.dto';
 import { GetAllDriversQueryDTO } from './dto/get-all-drivers-query.dto';
 import { UpdateDriverDTO } from './dto/update-driver.dto';
@@ -86,13 +82,9 @@ export class DriversController {
     return this.driversService.restoreDriver(id, user.id);
   }
 
-  @Post(':id/photo')
-  @UseInterceptors(FileInterceptor('photo', IMAGE_UPLOAD_OPTIONS))
-  async saveDriverPhoto(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() photo: Express.Multer.File | undefined,
-    @CurrentUser() user: AuthenticatedUser,
-  ): Promise<Driver> {
-    return this.driversService.saveDriverPhoto(id, photo, user.id);
-  }
+  // There is deliberately no photo upload here. A driver's photo is the FRONT
+  // capture from face enrollment (see FaceEnrollmentService.activateFaceProfile):
+  // the same image the gate matches against, under the same consent and quality
+  // checks. A separately uploaded photo could show a different person from the
+  // one recognition actually knows, which is the one thing this photo is for.
 }

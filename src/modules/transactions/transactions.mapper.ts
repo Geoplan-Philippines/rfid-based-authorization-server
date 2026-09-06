@@ -1,5 +1,6 @@
 import { TimelineEventType } from '@prisma/client';
 
+import { env } from 'src/core/config/env.config';
 import { GateEventDetailPayload, GateEventListPayload, TransactionDetail, TransactionListItem } from './types/transactions.types';
 import { isTransactionOpen } from './transactions.policy';
 
@@ -30,6 +31,7 @@ export function toTransactionDetail(event: GateEventDetailPayload): TransactionD
   const assignedDriverRows = event.truck?.driverAssignments.map((assignment) => assignment.driver) ?? [];
   const assignedDriver = assignedDriverRows[0] ?? null;
   const assignedDrivers = assignedDriverRows.map((driver) => ({ firstName: driver.firstName, lastName: driver.lastName }));
+  const faceAttempt = event.faceRecognitionAttempts[0] ?? null;
 
   return {
     id: event.id,
@@ -71,6 +73,29 @@ export function toTransactionDetail(event: GateEventDetailPayload): TransactionD
     // True if the recognised driver holds ANY active assignment on this truck (PRIMARY or RELIEF).
     faceMatchesAssigned: event.driverId !== null && assignedDriverRows.some((driver) => driver.id === event.driverId),
     snapshots: event.snapshots.map((snapshot) => ({ id: snapshot.id, type: snapshot.type, imageUrl: snapshot.imageUrl })),
+    faceRecognition: faceAttempt
+      ? {
+        attemptId: faceAttempt.id,
+        outcome: faceAttempt.outcome,
+        enforcementMode: faceAttempt.enforcementMode,
+        matchedDriver: faceAttempt.matchedDriver,
+        similarity: faceAttempt.similarity,
+        distance: faceAttempt.distance,
+        margin: faceAttempt.margin,
+        livenessScore: faceAttempt.livenessScore,
+        isLive: faceAttempt.livenessScore === null ? null : faceAttempt.livenessScore >= env.FACE_MIN_LIVENESS_SCORE,
+        qualityScore: faceAttempt.qualityScore,
+        framesCaptured: faceAttempt.framesCaptured,
+        framesUsable: faceAttempt.framesUsable,
+        votes: faceAttempt.votes,
+        cameraId: faceAttempt.cameraId,
+        snapshotUrl: faceAttempt.snapshotUrl,
+        latencyMs: faceAttempt.latencyMs,
+        errorCode: faceAttempt.errorCode,
+        reviewedOutcome: faceAttempt.reviewedOutcome,
+        createdAt: faceAttempt.createdAt,
+      }
+      : null,
     isOpen: isTransactionOpen(event.timeline.some((entry) => entry.type === TimelineEventType.BARRIER_OPENED)),
   };
 }

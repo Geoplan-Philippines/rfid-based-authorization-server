@@ -1,4 +1,4 @@
-import { AssignmentRole, GateEventResult, Prisma, RFIDTagStatus } from '@prisma/client';
+import { AssignmentRole, FaceProfileStatus, GateEventResult, Prisma, RFIDTagStatus } from '@prisma/client';
 
 import { RecentGateEvent } from 'src/common/gate-events/gate-event-analytics.service';
 import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
@@ -15,6 +15,7 @@ export interface DriverListItem {
   licenseNumber: string;
   photoUrl: string | null;
   isArchived: boolean;
+  faceProfileStatus: FaceProfileStatus | null;
   trucksCount: number;
   trucks: DriverTruckListSummary[];
   events30d: number;
@@ -39,6 +40,7 @@ export interface DriverDetail {
   licenseNumber: string;
   photoUrl: string | null;
   isArchived: boolean;
+  faceProfileStatus: FaceProfileStatus | null;
   trucks: DriverDetailTruck[];
   events30d: number;
   denials30d: number;

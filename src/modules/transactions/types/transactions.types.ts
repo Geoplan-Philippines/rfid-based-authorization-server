@@ -1,5 +1,16 @@
-import { GateEventResult, Prisma, RFIDTagStatus, SnapshotType, TimelineEventType, TruckDriverAssignmentStatus } from '@prisma/client';
+import {
+  FaceEnforcementMode,
+  FaceRecognitionOutcome,
+  FaceReviewOutcome,
+  GateEventResult,
+  Prisma,
+  RFIDTagStatus,
+  SnapshotType,
+  TimelineEventType,
+  TruckDriverAssignmentStatus,
+} from '@prisma/client';
 import { PaginatedResponse } from 'src/common/responses/paginated-api.response';
+import { TRANSACTION_FACE_ATTEMPT_INCLUDE } from 'src/modules/face/constants/face-attempt.constants';
 
 // Prisma payload shapes (single source of truth for what the service queries).
 
@@ -29,6 +40,11 @@ export const transactionDetailInclude = {
   verification: true,
   snapshots: true,
   timeline: { orderBy: { occurredAt: 'asc' } },
+  faceRecognitionAttempts: {
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    include: TRANSACTION_FACE_ATTEMPT_INCLUDE,
+  },
 } satisfies Prisma.GateEventInclude;
 
 // Open transaction = not yet closed by the barrier step. Minimal include the pipeline stages
@@ -43,9 +59,19 @@ export const openTransactionInclude = {
   verification: true,
 } satisfies Prisma.GateEventInclude;
 
+export const boundFaceTransactionInclude = {
+  ...openTransactionInclude,
+  timeline: {
+    where: { type: TimelineEventType.BARRIER_OPENED },
+    select: { id: true },
+    take: 1,
+  },
+} satisfies Prisma.GateEventInclude;
+
 export type GateEventListPayload = Prisma.GateEventGetPayload<{ include: typeof transactionListInclude }>;
 export type GateEventDetailPayload = Prisma.GateEventGetPayload<{ include: typeof transactionDetailInclude }>;
 export type OpenTransaction = Prisma.GateEventGetPayload<{ include: typeof openTransactionInclude }>;
+export type BoundFaceTransaction = Prisma.GateEventGetPayload<{ include: typeof boundFaceTransactionInclude }>;
 
 // Frontend-facing shapes. Display helpers (plateMismatch, truckInRegistry, faceMatchesAssigned)
 // are computed by the backend so the UI can render directly.
@@ -94,6 +120,28 @@ export interface TransactionVerification {
   verifiedAt: Date;
 }
 
+export interface TransactionFaceRecognition {
+  attemptId: string;
+  outcome: FaceRecognitionOutcome;
+  enforcementMode: FaceEnforcementMode;
+  matchedDriver: (DriverSummary & { id: string }) | null;
+  similarity: number | null;
+  distance: number | null;
+  margin: number | null;
+  livenessScore: number | null;
+  isLive: boolean | null;
+  qualityScore: number | null;
+  framesCaptured: number;
+  framesUsable: number;
+  votes: number;
+  cameraId: string | null;
+  snapshotUrl: string | null;
+  latencyMs: number | null;
+  errorCode: string | null;
+  reviewedOutcome: FaceReviewOutcome | null;
+  createdAt: Date;
+}
+
 export interface TransactionDetail {
   id: string;
   eventCode: string;
@@ -111,6 +159,7 @@ export interface TransactionDetail {
   // Depends on face recognition populating the event driver; false until that service lands.
   faceMatchesAssigned: boolean;
   snapshots: { id: string; type: SnapshotType; imageUrl: string }[];
+  faceRecognition: TransactionFaceRecognition | null;
   // True while the barrier has not yet opened (transaction is still mid-pipeline).
   isOpen: boolean;
 }

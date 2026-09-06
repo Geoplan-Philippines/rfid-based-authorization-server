@@ -8,6 +8,10 @@ import { IsNumber, IsOptional, IsString, IsUUID, Max, Min } from 'class-validato
 export class RecordFaceReadDTO {
   @IsOptional()
   @IsUUID()
+  attemptId?: string;
+
+  @IsOptional()
+  @IsUUID()
   driverId?: string;
 
   // Face match confidence, 0..1.
