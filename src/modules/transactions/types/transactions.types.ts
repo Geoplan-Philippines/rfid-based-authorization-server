@@ -33,10 +33,12 @@ export const transactionDetailInclude = {
 // (plate/face/barrier) need to patch the current event. `rfidTag` is included so plate/face reads
 // can recompute the result from the real tag state (matched? active?) rather than assuming the tag
 // was valid — an unknown or deactivated tag's result must stay UNKNOWN_TAG/DENIED through the
-// pipeline. `truck` is nullable (absent for an unknown tag).
+// pipeline. `driver` is included so a banned recognised driver still blocks auto-open at the
+// barrier. `truck` is nullable (absent for an unknown tag).
 export const openTransactionInclude = {
   rfidTag: true,
   truck: { include: { driverAssignments: { where: { status: TruckDriverAssignmentStatus.ACTIVE }, take: 1 } } },
+  driver: true,
   verification: true,
 } satisfies Prisma.GateEventInclude;
 

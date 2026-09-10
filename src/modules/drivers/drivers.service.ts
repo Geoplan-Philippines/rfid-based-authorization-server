@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Driver, Prisma, TruckDriverAssignmentStatus } from '@prisma/client';
 
+import { BanEntityDTO } from 'src/common/bans/dto/ban-entity.dto';
+import { buildBanUpdateData, buildLiftBanUpdateData, toBanFields, toBanMetadata } from 'src/common/bans/ban.utils';
 import { GateEventAnalyticsService } from 'src/common/gate-events/gate-event-analytics.service';
 import { ImageUploadService } from 'src/common/uploads/image-upload.service';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -30,6 +32,7 @@ export class DriversService {
       return await this.prisma.$transaction(async (tx) => {
         const driver = await tx.driver.create({
           data: {
+            driverId: body.driverId,
             firstName: this.toTitleCase(body.firstName),
             lastName: this.toTitleCase(body.lastName),
             licenseNumber: this.normalizeLicenseNumber(body.licenseNumber),
@@ -41,7 +44,7 @@ export class DriversService {
           action: 'CREATE_DRIVER',
           entityType: 'Driver',
           entityId: driver.id,
-          metadata: { licenseNumber: driver.licenseNumber },
+          metadata: { driverId: driver.driverId, licenseNumber: driver.licenseNumber },
         }, tx);
 
         return driver;
@@ -83,11 +86,13 @@ export class DriversService {
 
         return {
           id: driver.id,
+          driverId: driver.driverId,
           firstName: driver.firstName,
           lastName: driver.lastName,
           licenseNumber: driver.licenseNumber,
           photoUrl: driver.photoUrl,
           isArchived: driver.isArchived,
+          ...toBanFields(driver),
           trucksCount: driver.truckAssignments.length,
           trucks: driver.truckAssignments.slice(0, 3).map((assignment) => ({
             id: assignment.truck.id,
@@ -144,11 +149,13 @@ export class DriversService {
 
     return {
       id: driver.id,
+      driverId: driver.driverId,
       firstName: driver.firstName,
       lastName: driver.lastName,
       licenseNumber: driver.licenseNumber,
       photoUrl: driver.photoUrl,
       isArchived: driver.isArchived,
+      ...toBanFields(driver),
       trucks: driver.truckAssignments.map((assignment) => ({
         id: assignment.truck.id,
         plateNumber: assignment.truck.plateNumber,
@@ -234,6 +241,42 @@ export class DriversService {
     });
   }
 
+  async banDriver(id: string, body: BanEntityDTO, actorId?: string): Promise<Driver> {
+    const data = buildBanUpdateData(body);
+    await this.ensureDriverExists(id);
+
+    return this.prisma.$transaction(async (tx) => {
+      const driver = await tx.driver.update({ where: { id }, data });
+
+      await this.auditLogsService.recordAuditLog({
+        actorId,
+        action: 'BAN_DRIVER',
+        entityType: 'Driver',
+        entityId: driver.id,
+        metadata: toBanMetadata(driver),
+      }, tx);
+
+      return driver;
+    });
+  }
+
+  async liftDriverBan(id: string, actorId?: string): Promise<Driver> {
+    await this.ensureDriverExists(id);
+
+    return this.prisma.$transaction(async (tx) => {
+      const driver = await tx.driver.update({ where: { id }, data: buildLiftBanUpdateData() });
+
+      await this.auditLogsService.recordAuditLog({
+        actorId,
+        action: 'LIFT_DRIVER_BAN',
+        entityType: 'Driver',
+        entityId: driver.id,
+      }, tx);
+
+      return driver;
+    });
+  }
+
   async saveDriverPhoto(id: string, file: Express.Multer.File | undefined, actorId?: string): Promise<Driver> {
     await this.ensureDriverExists(id);
     const photoUrl = await this.imageUploadService.saveRegistryPhoto(file, 'drivers');
@@ -292,6 +335,9 @@ export class DriversService {
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return;
 
     const target = Array.isArray(error.meta?.target) ? error.meta.target.join(', ') : '';
+    if (target.includes('driver_id')) {
+      throw new ConflictException('Driver with the same driver id already exists');
+    }
     if (target.includes('license_number')) {
       throw new ConflictException('Driver with the same license number already exists');
     }

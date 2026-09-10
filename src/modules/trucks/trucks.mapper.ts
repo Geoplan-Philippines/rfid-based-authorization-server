@@ -1,3 +1,4 @@
+import { toBanFields } from 'src/common/bans/ban.utils';
 import type { GateEventSummary, RecentGateEvent } from 'src/common/gate-events/gate-event-analytics.service';
 import type { TruckBoundTagSummary, TruckDetail, TruckDetailPayload, TruckListItem, TruckListPayload } from './types/trucks.types';
 
@@ -8,6 +9,7 @@ export function mapTruckToListItem(truck: TruckListPayload, summary: GateEventSu
     model: truck.model,
     photoUrl: truck.photoUrl,
     isArchived: truck.isArchived,
+    ...toBanFields(truck),
     drivers: truck.driverAssignments.map((assignment) => ({
       id: assignment.driver.id,
       name: formatDriverName(assignment.driver.firstName, assignment.driver.lastName),
@@ -31,6 +33,7 @@ export function mapTruckToDetail(
     model: truck.model,
     photoUrl: truck.photoUrl,
     isArchived: truck.isArchived,
+    ...toBanFields(truck),
     status: truck.isArchived ? 'ARCHIVED' : 'ACTIVE',
     drivers: truck.driverAssignments.map((assignment) => ({
       id: assignment.driver.id,

@@ -41,11 +41,14 @@ model ApiKey {
 
 model Driver {
   id                            String                    @id @default(uuid())
+  driverId                      String                    @unique @map("driver_id")
   firstName                     String                    @map("first_name")
   lastName                      String                    @map("last_name")
   licenseNumber                 String                    @unique @map("license_number")
   photoUrl                      String?                   @map("photo_url")
   isArchived                    Boolean                   @default(false) @map("is_archived")
+  isPermanentlyBanned           Boolean                   @default(false) @map("is_permanently_banned")
+  bannedUntil                   DateTime?                 @map("banned_until")
 
   createdAt                     DateTime                  @default(now()) @map("created_at")
   updatedAt                     DateTime                  @updatedAt @map("updated_at")
@@ -63,6 +66,8 @@ model Truck {
   model                         String?
   photoUrl                      String?                   @map("photo_url")
   isArchived                    Boolean                   @default(false) @map("is_archived")
+  isPermanentlyBanned           Boolean                   @default(false) @map("is_permanently_banned")
+  bannedUntil                   DateTime?                 @map("banned_until")
 
   createdAt                     DateTime                  @default(now()) @map("created_at")
   updatedAt                     DateTime                  @updatedAt @map("updated_at")
@@ -257,6 +262,7 @@ enum GateEventResult {
   PLATE_MISMATCH
   MANUAL_OVERRIDE
   DENIED
+  BANNED
   ERROR
 }
 
@@ -275,4 +281,5 @@ enum TimelineEventType {
   FACE_MATCHED
   BARRIER_OPENED
   MANUAL_OVERRIDE
+  BANNED_ENTITY_DETECTED
 }

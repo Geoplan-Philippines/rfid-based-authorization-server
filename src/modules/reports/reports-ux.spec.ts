@@ -44,6 +44,10 @@ describe('report UX enhancements', () => {
     expect(accepted.result).toBe(GateEventResult.UNKNOWN_TAG);
     expect(await validate(accepted)).toHaveLength(0);
     expect((await validate(rejected)).map((error) => error.property)).toContain('result');
+
+    const banned = plainToInstance(GetExceptionsReportQueryDTO, { result: 'banned' });
+    expect(banned.result).toBe(GateEventResult.BANNED);
+    expect(await validate(banned)).toHaveLength(0);
   });
 
   it('returns 24 daily throughput buckets and keeps overrides out of exception throughput', () => {

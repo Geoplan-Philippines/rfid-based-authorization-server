@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Truck, TruckDriverAssignmentStatus } from '@prisma/client';
 
+import { BanEntityDTO } from 'src/common/bans/dto/ban-entity.dto';
+import { buildBanUpdateData, buildLiftBanUpdateData, toBanMetadata } from 'src/common/bans/ban.utils';
 import { GateEventAnalyticsService } from 'src/common/gate-events/gate-event-analytics.service';
 import { ImageUploadService } from 'src/common/uploads/image-upload.service';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -148,6 +150,40 @@ export class TrucksService {
 
   async restoreTruck(id: string, actorId?: string): Promise<Truck> {
     return this.updateTruckArchivedState(id, false, TRUCK_AUDIT_ACTION.restore, actorId);
+  }
+
+  async banTruck(id: string, body: BanEntityDTO, actorId?: string): Promise<Truck> {
+    const data = buildBanUpdateData(body);
+    await this.ensureTruckExists(id);
+
+    return this.prisma.$transaction(async (tx) => {
+      const truck = await tx.truck.update({ where: { id }, data });
+
+      await this.recordTruckAuditLog(tx, {
+        actorId,
+        action: TRUCK_AUDIT_ACTION.ban,
+        entityId: truck.id,
+        metadata: toBanMetadata(truck),
+      });
+
+      return truck;
+    });
+  }
+
+  async liftTruckBan(id: string, actorId?: string): Promise<Truck> {
+    await this.ensureTruckExists(id);
+
+    return this.prisma.$transaction(async (tx) => {
+      const truck = await tx.truck.update({ where: { id }, data: buildLiftBanUpdateData() });
+
+      await this.recordTruckAuditLog(tx, {
+        actorId,
+        action: TRUCK_AUDIT_ACTION.liftBan,
+        entityId: truck.id,
+      });
+
+      return truck;
+    });
   }
 
   async saveTruckPhoto(id: string, file: Express.Multer.File | undefined, actorId?: string): Promise<Truck> {

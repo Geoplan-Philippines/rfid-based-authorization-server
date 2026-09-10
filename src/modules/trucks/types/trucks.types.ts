@@ -21,6 +21,9 @@ export interface TruckListItem {
   model: string | null;
   photoUrl: string | null;
   isArchived: boolean;
+  isPermanentlyBanned: boolean;
+  bannedUntil: Date | null;
+  isBanned: boolean;
   drivers: TruckDriverListSummary[];
   driversCount: number;
   boundTag: TruckBoundTagSummary | null;
@@ -43,6 +46,9 @@ export interface TruckDetail {
   model: string | null;
   photoUrl: string | null;
   isArchived: boolean;
+  isPermanentlyBanned: boolean;
+  bannedUntil: Date | null;
+  isBanned: boolean;
   status: 'ACTIVE' | 'ARCHIVED';
   drivers: TruckDetailDriver[];
   boundTag: TruckBoundTagSummary | null;

@@ -44,6 +44,7 @@ describe('reports mapper', () => {
       PLATE_MISMATCH: 1,
       MANUAL_OVERRIDE: 1,
       DENIED: 0,
+      BANNED: 0,
       ERROR: 0,
     });
   });
@@ -102,6 +103,7 @@ describe('reports mapper', () => {
       FACE_MISMATCH: 0,
       PLATE_MISMATCH: 0,
       DENIED: 0,
+      BANNED: 0,
       ERROR: 0,
     });
   });

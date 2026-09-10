@@ -7,6 +7,8 @@ export const TRUCK_AUDIT_ACTION = {
   update: 'UPDATE_TRUCK',
   archive: 'ARCHIVE_TRUCK',
   restore: 'RESTORE_TRUCK',
+  ban: 'BAN_TRUCK',
+  liftBan: 'LIFT_TRUCK_BAN',
   uploadPhoto: 'UPLOAD_TRUCK_PHOTO',
 } as const;
 

@@ -4,7 +4,9 @@ import { Resend } from 'resend';
 
 import { env } from 'src/core/config/env.config';
 import { SendEmailDto } from './dto/email.dto';
+import { SendBanPresentationAlertDto } from './dto/send-ban-presentation-alert.dto';
 import { SendTransactionAlertDto } from './dto/send-transaction-alert.dto';
+import { BanPresentationAlertMapper } from './mappers/ban-presentation-alert.mapper';
 import { TransactionAlertMapper } from './mappers/transaction-alert.mapper';
 
 @Injectable()
@@ -60,5 +62,24 @@ export class EmailService {
     }
 
     return { id: data?.id, message: 'Transaction alert email sent successfully' };
+  }
+
+  async sendBanPresentationAlert(dto: SendBanPresentationAlertDto) {
+    const { to, presentation } = dto;
+    const { subject, html } = BanPresentationAlertMapper.buildEmail(presentation);
+
+    const { data, error } = await this.resend.emails.send({
+      from: env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+      to,
+      subject,
+      html,
+    });
+
+    if (error) {
+      this.logger.error(`Failed to send ban presentation alert for ${presentation.eventCode}: ${error.message}`);
+      throw new Error(`Failed to send ban presentation alert email: ${error.message}`);
+    }
+
+    return { id: data?.id, message: 'Ban presentation alert email sent successfully' };
   }
 }

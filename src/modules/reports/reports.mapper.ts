@@ -223,6 +223,8 @@ function getExceptionReason(result: GateEventResult): string {
       return 'The read plate does not match the bound truck.';
     case GateEventResult.DENIED:
       return 'The RFID tag is not active for authorization.';
+    case GateEventResult.BANNED:
+      return 'A banned truck or driver presented at the gate.';
     case GateEventResult.ERROR:
       return 'The authorization pipeline reported an error.';
     default:

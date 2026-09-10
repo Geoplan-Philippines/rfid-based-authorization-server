@@ -4,8 +4,11 @@ import { addMilliseconds } from 'date-fns';
 import { nanoid } from 'nanoid';
 
 import { PrismaService } from '../../core/database/prisma.service';
-import { EmailService } from '../email/email.service';
+import { BAN_ENTITY_TYPE, BAN_TYPE, type BanEntityType } from 'src/common/bans/ban.constants';
+import { describeBan, formatBanUntilDate, isBanActive, type BanState } from 'src/common/bans/ban.utils';
 import { env } from 'src/core/config/env.config';
+import { EmailService } from '../email/email.service';
+import type { BanPresentationAlert } from '../email/dto/send-ban-presentation-alert.dto';
 import { GetAllTransactionsQueryDTO } from './dto/get-all-transactions-query.dto';
 import { RecordRfidReadDTO } from './dto/record-rfid-read.dto';
 import { RecordPlateReadDTO } from './dto/record-plate-read.dto';
@@ -89,10 +92,18 @@ export class TransactionsService {
     const truck = tag?.assignedTruck ?? null;
     const rfidMatched = tag !== null;
     const tagActive = tag?.status === RFIDTagStatus.ACTIVE;
+    const truckBanned = isBanActive(truck);
     const canVerify = truck !== null && tagActive;
 
     // No plate/face yet: the result is provisional and recomputed as later stages report in.
-    const result = this.resolveGateEventResult({ rfidMatched, tagActive, plateMatched: null, faceMatched: null });
+    const result = this.resolveGateEventResult({
+      rfidMatched,
+      tagActive,
+      truckBanned,
+      driverBanned: false,
+      plateMatched: null,
+      faceMatched: null,
+    });
     const occurredAt = new Date();
 
     const event = await this.prisma.gateEvent.create({
@@ -110,13 +121,23 @@ export class TransactionsService {
             ...(canVerify
               ? [{ type: TimelineEventType.TAG_VALIDATED, message: `bound to ${truck.plateNumber}`, occurredAt: addMilliseconds(occurredAt, 1) }]
               : []),
+            ...(truck && truckBanned
+              ? [{
+                  type: TimelineEventType.BANNED_ENTITY_DETECTED,
+                  message: this.bannedEntityMessage(BAN_ENTITY_TYPE.truck, truck.plateNumber, truck),
+                  metadata: this.bannedEntityMetadata(BAN_ENTITY_TYPE.truck, truck),
+                  occurredAt: addMilliseconds(occurredAt, 2),
+                }]
+              : []),
           ],
         },
       },
       include: transactionDetailInclude,
     });
 
-    return toTransactionDetail(event);
+    const detail = toTransactionDetail(event);
+    if (truck && truckBanned) this.dispatchBanPresentationAlert(this.toTruckBanPresentation(detail, truck));
+    return detail;
   }
 
   // Stage 2 — plate-recognition service reports the read plate. Patches the latest open transaction.
@@ -134,11 +155,13 @@ export class TransactionsService {
     // Recompute from the real tag state so a flagged transaction keeps its result through this
     // stage: an unknown tag stays UNKNOWN_TAG and a deactivated tag stays DENIED. Only the barrier
     // override closes it.
-    const { rfidMatched, tagActive } = this.getTagState(event);
+    const { rfidMatched, tagActive, truckBanned } = this.getTagState(event);
     const now = new Date();
     const result = this.resolveGateEventResult({
       rfidMatched,
       tagActive,
+      truckBanned,
+      driverBanned: false,
       plateMatched,
       faceMatched: event.verification?.faceMatched ?? null,
     });
@@ -187,27 +210,33 @@ export class TransactionsService {
     }
 
     const assignedDriverId = event.truck?.driverAssignments[0]?.driverId ?? null;
+    let recognizedDriver: (BanState & { id: string; firstName: string; lastName: string; licenseNumber: string }) | null = null;
 
     if (body.driverId) {
-      const driver = await this.prisma.driver.findUnique({ where: { id: body.driverId } });
+      const driver = await this.prisma.driver.findUnique({ where: { driverId: body.driverId } });
       if (!driver) throw new BadRequestException('Recognised driver does not exist');
+      recognizedDriver = driver;
     }
 
     // Match = the recognised driver is the one assigned to this truck. An unrecognised face
     // (no driverId) is a non-match.
-    const faceMatched = body.driverId !== undefined && body.driverId === assignedDriverId;
+    const faceMatched = recognizedDriver !== null && recognizedDriver.id === assignedDriverId;
+    const driverBanned = isBanActive(recognizedDriver);
 
-    // The result is recomputed from the real tag state so a flagged transaction (unknown or
-    // deactivated tag) keeps its result. A valid (matched + active) tag is the RFID-only auto-open
-    // trigger: this is the final pipeline stage, so once the face read lands the barrier opens
-    // automatically — even on a plate/face mismatch (the result is left flagged for review). An
-    // unknown/deactivated tag does NOT auto-open; it stays open for a manual barrier override.
-    const { rfidMatched, tagActive, verified: rfidVerified } = this.getTagState(event);
+    // The result is recomputed from the real tag and ban state so a flagged transaction (unknown
+    // tag, deactivated tag, or banned truck/driver) keeps its result. A valid (matched + active)
+    // unbanned tag is the RFID-only auto-open trigger: this is the final pipeline stage, so once
+    // the face read lands the barrier opens automatically — even on a plate/face mismatch (the
+    // result is left flagged for review). An unknown/deactivated tag or a banned entity does NOT
+    // auto-open; it stays open for a manual barrier override.
+    const { rfidMatched, tagActive, truckBanned, verified: rfidVerified } = this.getTagState(event, recognizedDriver);
 
     const now = new Date();
     const result = this.resolveGateEventResult({
       rfidMatched,
       tagActive,
+      truckBanned,
+      driverBanned,
       plateMatched: event.verification?.plateMatched ?? null,
       faceMatched,
     });
@@ -219,7 +248,7 @@ export class TransactionsService {
     await this.prisma.$transaction([
       this.prisma.gateEvent.update({
         where: { id: event.id },
-        data: { result, driver: body.driverId ? { connect: { id: body.driverId } } : undefined },
+        data: { result, driver: recognizedDriver ? { connect: { id: recognizedDriver.id } } : undefined },
       }),
       this.prisma.eventVerification.update({
         where: { gateEventId: event.id },
@@ -239,6 +268,19 @@ export class TransactionsService {
             }),
           ]
         : []),
+      ...(recognizedDriver && driverBanned
+        ? [
+            this.prisma.gateTimelineEvent.create({
+              data: {
+                gateEventId: event.id,
+                type: TimelineEventType.BANNED_ENTITY_DETECTED,
+                message: this.bannedEntityMessage(BAN_ENTITY_TYPE.driver, `${recognizedDriver.firstName} ${recognizedDriver.lastName}`, recognizedDriver),
+                metadata: this.bannedEntityMetadata(BAN_ENTITY_TYPE.driver, recognizedDriver),
+                occurredAt: addMilliseconds(now, faceMatched ? 2 : 1),
+              },
+            }),
+          ]
+        : []),
       this.prisma.gateSnapshot.create({
         data: { gateEventId: event.id, type: SnapshotType.FACE, imageUrl: body.snapshotUrl ?? PLACEHOLDER_SNAPSHOT_URL },
       }),
@@ -253,19 +295,22 @@ export class TransactionsService {
     ]);
 
     const detail = await this.getTransactionById(event.id);
-    // A flagged-but-auto-opened transaction (plate/face mismatch on a valid tag) still alerts
-    // reviewers once it closes.
+    if (recognizedDriver && driverBanned) this.dispatchBanPresentationAlert(this.toDriverBanPresentation(detail, recognizedDriver));
+    // A flagged-but-auto-opened transaction (plate/face mismatch on a valid unbanned tag) still
+    // alerts reviewers once it closes. Banned presentations send their own ops email above and do
+    // not auto-open, so they do not use this path.
     if (rfidVerified) this.dispatchTransactionAlert(detail);
     return detail;
   }
 
   // Stage 4 — barrier open. The final step: closes the transaction. Triggered from the operator
   // console; in production the RFID controller also opens the boom locally (GPIO) on a valid tag.
-  // RFID-only policy: a valid, active tag opens the barrier AUTOMATICALLY regardless of plate/face
-  // mismatches — that is a normal close, not an override, and the result is left as-is (e.g. it
-  // stays PLATE_MISMATCH/FACE_MISMATCH for review). Only an invalid tag (unknown or deactivated)
-  // has nothing to auto-open on, so the guard's action there is a manual override: it forces the
-  // result to MANUAL_OVERRIDE and records the acting operator + reason.
+  // RFID-only policy: a valid, active, unbanned tag opens the barrier AUTOMATICALLY regardless of
+  // plate/face mismatches — that is a normal close, not an override, and the result is left as-is
+  // (e.g. it stays PLATE_MISMATCH/FACE_MISMATCH for review). Only an invalid tag (unknown or
+  // deactivated) or a banned truck/driver has nothing to auto-open on, so the guard's action there
+  // is a manual override: it forces the result to MANUAL_OVERRIDE and records the acting operator
+  // + reason.
   async recordBarrierOpened(operator: AuthenticatedUser, body: RecordBarrierEventDTO): Promise<TransactionDetail> {
     const event = await this.findOpenTransaction();
     const now = new Date();
@@ -380,6 +425,19 @@ export class TransactionsService {
       .catch((error) => this.logger.error(`Transaction alert failed for ${transaction.eventCode}`, error instanceof Error ? error.stack : String(error)));
   }
 
+  private dispatchBanPresentationAlert(presentation: BanPresentationAlert): void {
+    const recipients = env.TRANSACTION_ALERT_RECIPIENTS;
+    if (recipients.length === 0) {
+      this.logger.warn(`No TRANSACTION_ALERT_RECIPIENTS configured; skipping ban alert for ${presentation.eventCode}`);
+      return;
+    }
+
+    this.logger.log(`Sending ban presentation alert for ${presentation.eventCode} (${presentation.entityType}, ${presentation.banType}) to ${recipients.join(', ')}`);
+    void this.emailService
+      .sendBanPresentationAlert({ to: recipients, presentation })
+      .catch((error) => this.logger.error(`Ban presentation alert failed for ${presentation.eventCode}`, error instanceof Error ? error.stack : String(error)));
+  }
+
   // Single-file lane: open transactions form a FIFO queue. The truck currently under the
   // cameras/boom is the OLDEST event not yet closed by the barrier step. UHF RFID range can read a
   // following truck early and open a 2nd transaction; that one stays queued behind. So reads attach
@@ -402,26 +460,82 @@ export class TransactionsService {
     return event;
   }
 
-  // Tag state derived from the linked RFID tag, the single place that reads it. `verified` (matched
-  // + active) is the RFID-only condition for an automatic barrier open / a non-override close;
-  // `rfidMatched`/`tagActive` feed result resolution so an unknown tag resolves to UNKNOWN_TAG and a
-  // deactivated one to DENIED.
-  private getTagState(event: OpenTransaction): { rfidMatched: boolean; tagActive: boolean; verified: boolean } {
+  // Tag and ban state derived from the linked RFID tag, bound truck, and recognised driver. `verified`
+  // (matched + active + not banned) is the RFID-only condition for an automatic barrier open / a
+  // non-override close. Plate/face mismatches still verify. A banned truck or banned driver does not.
+  private getTagState(
+    event: OpenTransaction,
+    recognizedDriver: BanState | null = event.driver,
+  ): { rfidMatched: boolean; tagActive: boolean; truckBanned: boolean; driverBanned: boolean; verified: boolean } {
     const rfidMatched = event.rfidTag !== null;
     const tagActive = event.rfidTag?.status === RFIDTagStatus.ACTIVE;
-    return { rfidMatched, tagActive, verified: rfidMatched && tagActive };
+    const truckBanned = isBanActive(event.truck);
+    const driverBanned = isBanActive(recognizedDriver);
+    return {
+      rfidMatched,
+      tagActive,
+      truckBanned,
+      driverBanned,
+      verified: rfidMatched && tagActive && !truckBanned && !driverBanned,
+    };
   }
 
   private resolveGateEventResult(input: {
     rfidMatched: boolean;
     tagActive: boolean;
+    truckBanned: boolean;
+    driverBanned: boolean;
     plateMatched: boolean | null;
     faceMatched: boolean | null;
   }): GateEventResult {
     if (!input.rfidMatched) return GateEventResult.UNKNOWN_TAG;
+    if (input.truckBanned || input.driverBanned) return GateEventResult.BANNED;
     if (!input.tagActive) return GateEventResult.DENIED;
     if (input.plateMatched === false) return GateEventResult.PLATE_MISMATCH;
     if (input.faceMatched === false) return GateEventResult.FACE_MISMATCH;
     return GateEventResult.VERIFIED;
+  }
+
+  private toTruckBanPresentation(
+    event: Pick<TransactionDetail, 'eventCode' | 'occurredAt'>,
+    truck: BanState & { plateNumber: string },
+  ): BanPresentationAlert {
+    return {
+      eventCode: event.eventCode,
+      occurredAt: event.occurredAt,
+      entityType: BAN_ENTITY_TYPE.truck,
+      subjectName: truck.plateNumber,
+      identifier: truck.plateNumber,
+      ...describeBan(truck),
+    };
+  }
+
+  private toDriverBanPresentation(
+    event: Pick<TransactionDetail, 'eventCode' | 'occurredAt'>,
+    driver: BanState & { firstName: string; lastName: string; licenseNumber: string },
+  ): BanPresentationAlert {
+    return {
+      eventCode: event.eventCode,
+      occurredAt: event.occurredAt,
+      entityType: BAN_ENTITY_TYPE.driver,
+      subjectName: `${driver.firstName} ${driver.lastName}`,
+      identifier: driver.licenseNumber,
+      ...describeBan(driver),
+    };
+  }
+
+  private bannedEntityMessage(entityType: BanEntityType, name: string, state: BanState): string {
+    const ban = describeBan(state);
+    if (ban.banType === BAN_TYPE.permanent) return `${entityType.toLowerCase()} ${name} permanently banned`;
+    return `${entityType.toLowerCase()} ${name} banned until ${ban.bannedUntil ? formatBanUntilDate(ban.bannedUntil) : 'date'}`;
+  }
+
+  private bannedEntityMetadata(entityType: BanEntityType, state: BanState): Prisma.InputJsonValue {
+    const ban = describeBan(state);
+    return {
+      entityType,
+      banType: ban.banType,
+      bannedUntil: ban.bannedUntil ? formatBanUntilDate(ban.bannedUntil) : null,
+    };
   }
 }

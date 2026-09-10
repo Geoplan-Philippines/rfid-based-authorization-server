@@ -87,6 +87,8 @@ describe('TrucksService', () => {
       model: 'Mixer',
       photoUrl: null,
       isArchived: false,
+      isPermanentlyBanned: false,
+      bannedUntil: null,
       rfidTag: { epcId: 'EPC-1', status: RFIDTagStatus.ACTIVE },
       driverAssignments: [
         {
@@ -122,6 +124,9 @@ describe('TrucksService', () => {
           model: 'Mixer',
           photoUrl: null,
           isArchived: false,
+          isPermanentlyBanned: false,
+          bannedUntil: null,
+          isBanned: false,
           drivers: [{ id: 'driver-1', name: 'Juan Dela Cruz', role: AssignmentRole.PRIMARY }],
           driversCount: 1,
           boundTag: { epcId: 'EPC-1', status: RFIDTagStatus.ACTIVE },
@@ -172,6 +177,8 @@ describe('TrucksService', () => {
       model: 'Mixer',
       photoUrl: '/uploads/trucks/truck.jpg',
       isArchived: false,
+      isPermanentlyBanned: false,
+      bannedUntil: null,
       createdAt,
       rfidTag: null,
       driverAssignments: [
@@ -207,6 +214,9 @@ describe('TrucksService', () => {
       model: 'Mixer',
       photoUrl: '/uploads/trucks/truck.jpg',
       isArchived: false,
+      isPermanentlyBanned: false,
+      bannedUntil: null,
+      isBanned: false,
       status: 'ACTIVE',
       drivers: [
         {
@@ -225,5 +235,52 @@ describe('TrucksService', () => {
       recentGateEvents,
       createdAt,
     });
+  });
+
+  it('bans a truck permanently and writes an audit log', async () => {
+    prismaService.truck.findUnique.mockResolvedValue({ id: 'truck-1' });
+    const truck = { id: 'truck-1', plateNumber: 'ABC 123', isPermanentlyBanned: true, bannedUntil: null };
+    transactionClient.truck.update.mockResolvedValue(truck);
+
+    const result = await service.banTruck('truck-1', { isPermanent: true }, 'user-1');
+
+    expect(result).toBe(truck);
+    expect(transactionClient.truck.update).toHaveBeenCalledWith({
+      where: { id: 'truck-1' },
+      data: { isPermanentlyBanned: true, bannedUntil: null },
+    });
+    expect(auditLogsService.recordAuditLog).toHaveBeenCalledWith({
+      actorId: 'user-1',
+      action: 'BAN_TRUCK',
+      entityType: 'Truck',
+      entityId: 'truck-1',
+      metadata: { banType: 'PERMANENT', bannedUntil: null },
+    }, transactionClient);
+  });
+
+  it('bans a truck until a date and lifts the ban to restore eligibility', async () => {
+    prismaService.truck.findUnique.mockResolvedValue({ id: 'truck-1' });
+    const bannedUntil = new Date(2026, 11, 31);
+    transactionClient.truck.update
+      .mockResolvedValueOnce({ id: 'truck-1', isPermanentlyBanned: false, bannedUntil })
+      .mockResolvedValueOnce({ id: 'truck-1', isPermanentlyBanned: false, bannedUntil: null });
+
+    await service.banTruck('truck-1', { isPermanent: false, until: '2026-12-31' }, 'user-1');
+    await service.liftTruckBan('truck-1', 'user-1');
+
+    expect(transactionClient.truck.update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'truck-1' },
+      data: { isPermanentlyBanned: false, bannedUntil },
+    });
+    expect(transactionClient.truck.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'truck-1' },
+      data: { isPermanentlyBanned: false, bannedUntil: null },
+    });
+    expect(auditLogsService.recordAuditLog).toHaveBeenNthCalledWith(2, {
+      actorId: 'user-1',
+      action: 'LIFT_TRUCK_BAN',
+      entityType: 'Truck',
+      entityId: 'truck-1',
+    }, transactionClient);
   });
 });

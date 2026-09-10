@@ -138,6 +138,8 @@ export class TransactionAlertMapper {
     switch (t.result) {
       case GateEventResult.DENIED:
         return 'Access denied — the RFID tag is not active.';
+      case GateEventResult.BANNED:
+        return 'A banned truck or driver presented at the gate.';
       case GateEventResult.UNKNOWN_TAG:
         return 'Unknown RFID tag — no registered truck matches this tag.';
       case GateEventResult.MANUAL_OVERRIDE:

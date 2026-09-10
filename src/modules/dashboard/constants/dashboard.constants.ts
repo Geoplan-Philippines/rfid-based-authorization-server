@@ -8,6 +8,7 @@ export const EXCEPTION_GATE_RESULTS: GateEventResult[] = [
   GateEventResult.FACE_MISMATCH,
   GateEventResult.PLATE_MISMATCH,
   GateEventResult.DENIED,
+  GateEventResult.BANNED,
   GateEventResult.ERROR,
 ];
 

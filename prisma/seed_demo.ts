@@ -33,6 +33,7 @@ const truck = {
 
 const driver = {
   id: '094cde91-1732-435d-9735-8845f9b9c6ad',
+  driverId: 'DRV-00001',
   firstName: 'Ramon',
   lastName: 'Reyes',
   licenseNumber: 'N04-18-764219',

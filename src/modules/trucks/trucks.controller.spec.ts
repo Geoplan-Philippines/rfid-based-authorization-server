@@ -16,6 +16,8 @@ describe('TrucksController', () => {
     updateTruck: jest.fn(),
     archiveTruck: jest.fn(),
     restoreTruck: jest.fn(),
+    banTruck: jest.fn(),
+    liftTruckBan: jest.fn(),
     saveTruckPhoto: jest.fn(),
   };
 
@@ -50,5 +52,24 @@ describe('TrucksController', () => {
     await controller.getUntaggedTrucks();
 
     expect(trucksService.getUntaggedTrucks).toHaveBeenCalledWith();
+  });
+
+  it('delegates a truck ban with the authenticated actor id', async () => {
+    const body = { isPermanent: true };
+    const user = { id: 'user-1', email: 'admin@example.com', role: Role.ADMIN };
+    trucksService.banTruck.mockResolvedValue({ id: 'truck-1', isPermanentlyBanned: true });
+
+    await controller.banTruck('truck-1', body, user);
+
+    expect(trucksService.banTruck).toHaveBeenCalledWith('truck-1', body, 'user-1');
+  });
+
+  it('delegates lifting a truck ban with the authenticated actor id', async () => {
+    const user = { id: 'user-1', email: 'admin@example.com', role: Role.ADMIN };
+    trucksService.liftTruckBan.mockResolvedValue({ id: 'truck-1', isPermanentlyBanned: false, bannedUntil: null });
+
+    await controller.liftTruckBan('truck-1', user);
+
+    expect(trucksService.liftTruckBan).toHaveBeenCalledWith('truck-1', 'user-1');
   });
 });

@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Truck } from '@prisma/client';
 
+import { BanEntityDTO } from 'src/common/bans/dto/ban-entity.dto';
 import { IMAGE_UPLOAD_OPTIONS } from 'src/common/uploads/image-upload.constants';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PassportJwtGuard } from '../auth/guards/passport-jwt.guard';
@@ -13,6 +15,8 @@ import { TrucksService } from './trucks.service';
 import type { TruckDetail, TruckListResponse, TruckUntaggedItem, TruckWithDrivers } from './types/trucks.types';
 
 // TODO: Apply RolesGuard and @Roles() decorator to all routes
+@ApiTags('trucks')
+@ApiBearerAuth()
 @Controller('trucks')
 @UseGuards(PassportJwtGuard)
 export class TrucksController {
@@ -69,6 +73,26 @@ export class TrucksController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<Truck> {
     return this.trucksService.restoreTruck(id, user.id);
+  }
+
+  @Post(':id/ban')
+  @ApiOperation({ summary: 'Ban a truck permanently or until a date' })
+  @ApiBody({ type: BanEntityDTO })
+  async banTruck(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: BanEntityDTO,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<Truck> {
+    return this.trucksService.banTruck(id, body, user.id);
+  }
+
+  @Post(':id/lift-ban')
+  @ApiOperation({ summary: 'Lift a truck ban and restore eligibility' })
+  async liftTruckBan(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<Truck> {
+    return this.trucksService.liftTruckBan(id, user.id);
   }
 
   @Post(':id/photo')

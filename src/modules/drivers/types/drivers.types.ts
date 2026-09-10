@@ -10,11 +10,15 @@ export interface DriverTruckListSummary {
 
 export interface DriverListItem {
   id: string;
+  driverId: string;
   firstName: string;
   lastName: string;
   licenseNumber: string;
   photoUrl: string | null;
   isArchived: boolean;
+  isPermanentlyBanned: boolean;
+  bannedUntil: Date | null;
+  isBanned: boolean;
   trucksCount: number;
   trucks: DriverTruckListSummary[];
   events30d: number;
@@ -34,11 +38,15 @@ export interface DriverDetailTruck {
 
 export interface DriverDetail {
   id: string;
+  driverId: string;
   firstName: string;
   lastName: string;
   licenseNumber: string;
   photoUrl: string | null;
   isArchived: boolean;
+  isPermanentlyBanned: boolean;
+  bannedUntil: Date | null;
+  isBanned: boolean;
   trucks: DriverDetailTruck[];
   events30d: number;
   denials30d: number;

@@ -50,9 +50,10 @@ describe('TransactionsController', () => {
           UNKNOWN_TAG: 0,
           FACE_MISMATCH: 0,
           PLATE_MISMATCH: 0,
-          MANUAL_OVERRIDE: 0,
-          DENIED: 0,
-          ERROR: 0,
+      MANUAL_OVERRIDE: 0,
+      DENIED: 0,
+      BANNED: 0,
+      ERROR: 0,
         },
       },
     };
