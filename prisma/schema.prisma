@@ -48,6 +48,7 @@ model Driver {
   photoUrl                      String?                   @map("photo_url")
   isArchived                    Boolean                   @default(false) @map("is_archived")
   isPermanentlyBanned           Boolean                   @default(false) @map("is_permanently_banned")
+  bannedFrom                    DateTime?                 @map("banned_from")
   bannedUntil                   DateTime?                 @map("banned_until")
 
   createdAt                     DateTime                  @default(now()) @map("created_at")
@@ -67,6 +68,7 @@ model Truck {
   photoUrl                      String?                   @map("photo_url")
   isArchived                    Boolean                   @default(false) @map("is_archived")
   isPermanentlyBanned           Boolean                   @default(false) @map("is_permanently_banned")
+  bannedFrom                    DateTime?                 @map("banned_from")
   bannedUntil                   DateTime?                 @map("banned_until")
 
   createdAt                     DateTime                  @default(now()) @map("created_at")

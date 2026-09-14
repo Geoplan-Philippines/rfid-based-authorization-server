@@ -1,5 +1,5 @@
 import { BAN_TYPE } from 'src/common/bans/ban.constants';
-import { formatBanUntilDate } from 'src/common/bans/ban.utils';
+import { formatBanDate } from 'src/common/bans/ban.utils';
 import type { BanPresentationAlert } from '../dto/send-ban-presentation-alert.dto';
 
 export class BanPresentationAlertMapper {
@@ -8,15 +8,33 @@ export class BanPresentationAlertMapper {
     const when = BanPresentationAlertMapper.formatDateTime(presentation.occurredAt);
     const banType = BanPresentationAlertMapper.banTypeLabel(presentation);
 
+    const listItems: string[] = [
+      `<li>Who/what: ${BanPresentationAlertMapper.escapeHtml(who)}</li>`,
+      `<li>When: ${BanPresentationAlertMapper.escapeHtml(when)}</li>`,
+      `<li>Ban type: ${BanPresentationAlertMapper.escapeHtml(banType)}</li>`,
+    ];
+
+    if (presentation.banType !== BAN_TYPE.permanent) {
+      if (presentation.bannedFrom) {
+        listItems.push(
+          `<li>From: ${BanPresentationAlertMapper.escapeHtml(formatBanDate(presentation.bannedFrom))}</li>`,
+        );
+      }
+      if (presentation.bannedUntil) {
+        listItems.push(
+          `<li>To: ${BanPresentationAlertMapper.escapeHtml(formatBanDate(presentation.bannedUntil))}</li>`,
+        );
+      }
+    }
+
+    listItems.push(`<li>Event: ${BanPresentationAlertMapper.escapeHtml(presentation.eventCode)}</li>`);
+
     return {
       subject: `Banned ${presentation.entityType.toLowerCase()} presented at gate — ${presentation.subjectName}`,
       html: [
         `<p>${BanPresentationAlertMapper.escapeHtml(who)} presented at the gate and is not eligible as normal verified traffic.</p>`,
         '<ul>',
-        `<li>Who/what: ${BanPresentationAlertMapper.escapeHtml(who)}</li>`,
-        `<li>When: ${BanPresentationAlertMapper.escapeHtml(when)}</li>`,
-        `<li>Ban type: ${BanPresentationAlertMapper.escapeHtml(banType)}</li>`,
-        `<li>Event: ${BanPresentationAlertMapper.escapeHtml(presentation.eventCode)}</li>`,
+        ...listItems,
         '</ul>',
       ].join(''),
     };
@@ -32,9 +50,13 @@ export class BanPresentationAlertMapper {
 
   private static banTypeLabel(presentation: BanPresentationAlert): string {
     if (presentation.banType === BAN_TYPE.permanent) return 'Permanent';
-    if (!presentation.bannedUntil) return 'Until date';
-
-    return `Until ${formatBanUntilDate(presentation.bannedUntil)}`;
+    if (presentation.bannedFrom && presentation.bannedUntil) {
+      return `Timed (${formatBanDate(presentation.bannedFrom)} to ${formatBanDate(presentation.bannedUntil)})`;
+    }
+    if (presentation.bannedUntil) {
+      return `Until ${formatBanDate(presentation.bannedUntil)}`;
+    }
+    return 'Timed';
   }
 
   private static formatDateTime(value: Date): string {

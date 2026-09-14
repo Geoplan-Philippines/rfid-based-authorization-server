@@ -2,7 +2,8 @@
 
 This release preserves existing truck and driver records.
 
-- Ban state defaults to `is_permanently_banned = false` and `banned_until = NULL`.
+- Ban state defaults to `is_permanently_banned = false`, `banned_from = NULL`, and `banned_until = NULL`.
+- Existing timed bans that only had an until date are backfilled with `banned_from` (preferring ban audit log `created_at`, falling back to entity `created_at`).
 - Existing drivers receive sequential IDs such as `DRV-00001`, ordered by `created_at` and database ID.
 - The driver ID backfill and constraints run in one transaction.
 

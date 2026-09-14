@@ -7,6 +7,7 @@ export interface BanPresentationAlert {
   subjectName: string;
   identifier: string;
   banType: BanType;
+  bannedFrom: Date | null;
   bannedUntil: Date | null;
 }
 

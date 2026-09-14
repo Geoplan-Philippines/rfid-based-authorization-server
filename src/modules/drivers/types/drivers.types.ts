@@ -17,6 +17,7 @@ export interface DriverListItem {
   photoUrl: string | null;
   isArchived: boolean;
   isPermanentlyBanned: boolean;
+  bannedFrom: Date | null;
   bannedUntil: Date | null;
   isBanned: boolean;
   trucksCount: number;
@@ -45,6 +46,7 @@ export interface DriverDetail {
   photoUrl: string | null;
   isArchived: boolean;
   isPermanentlyBanned: boolean;
+  bannedFrom: Date | null;
   bannedUntil: Date | null;
   isBanned: boolean;
   trucks: DriverDetailTruck[];
