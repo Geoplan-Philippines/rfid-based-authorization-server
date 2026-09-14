@@ -1,7 +1,8 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, MessageEvent, NotFoundException } from '@nestjs/common';
 import { GateEventResult, Prisma, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
 import { addMilliseconds } from 'date-fns';
 import { nanoid } from 'nanoid';
+import { Observable } from 'rxjs';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import { BAN_ENTITY_TYPE, BAN_TYPE, type BanEntityType } from 'src/common/bans/ban.constants';
@@ -15,8 +16,9 @@ import { RecordPlateReadDTO } from './dto/record-plate-read.dto';
 import { RecordFaceReadDTO } from './dto/record-face-read.dto';
 import { RecordBarrierEventDTO } from './dto/record-barrier-event.dto';
 import { AuthenticatedUser } from '../auth/types/auth.types';
-import { OpenTransaction, TransactionDetail, TransactionListResponse, TransactionResultCounts, openTransactionInclude, transactionDetailInclude, transactionListInclude } from './types/transactions.types';
-import { toTransactionDetail, toTransactionListItem } from './transactions.mapper';
+import { OpenTransaction, TransactionDetail, TransactionEventType, TransactionListResponse, TransactionResultCounts, openTransactionInclude, transactionDetailInclude, transactionListInclude } from './types/transactions.types';
+import { toTransactionDetail, toTransactionListItem, toTransactionListItemFromDetail } from './transactions.mapper';
+import { TransactionEventsService } from './transaction-events.service';
 
 // --- Hardcoded fallbacks ----------------------------------------------------
 // Used only when a device/service omits an optional field (e.g. manual testing). Real devices
@@ -40,6 +42,7 @@ export class TransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly transactionEventsService: TransactionEventsService,
   ) {}
 
   async getAllTransactions(query: GetAllTransactionsQueryDTO): Promise<TransactionListResponse> {
@@ -80,6 +83,10 @@ export class TransactionsService {
     if (!event) throw new NotFoundException('Transaction not found');
 
     return toTransactionDetail(event);
+  }
+
+  streamTransactions(eventType?: TransactionEventType): Observable<MessageEvent> {
+    return this.transactionEventsService.stream(eventType);
   }
 
   // Stage 1 — RFID reader reports a tag read. Opens a new transaction and validates the tag.
@@ -137,6 +144,7 @@ export class TransactionsService {
 
     const detail = toTransactionDetail(event);
     if (truck && truckBanned) this.dispatchBanPresentationAlert(this.toTruckBanPresentation(detail, truck));
+    this.dispatchTransactionEvent('transaction.created', detail, event.createdAt);
     return detail;
   }
 
@@ -194,7 +202,9 @@ export class TransactionsService {
       }),
     ]);
 
-    return this.getTransactionById(event.id);
+    const detail = await this.getTransactionById(event.id);
+    this.dispatchTransactionEvent('transaction.updated', detail);
+    return detail;
   }
 
   // Stage 3 — face-recognition service reports the identified driver. Patches the latest open
@@ -300,6 +310,7 @@ export class TransactionsService {
     // alerts reviewers once it closes. Banned presentations send their own ops email above and do
     // not auto-open, so they do not use this path.
     if (rfidVerified) this.dispatchTransactionAlert(detail);
+    this.dispatchTransactionEvent('transaction.updated', detail);
     return detail;
   }
 
@@ -361,6 +372,7 @@ export class TransactionsService {
     // the guard opened without full verification and reviewers should see it.
     const detail = await this.getTransactionById(event.id);
     this.dispatchTransactionAlert(detail);
+    this.dispatchTransactionEvent('transaction.updated', detail);
     return detail;
   }
 
@@ -436,6 +448,18 @@ export class TransactionsService {
     void this.emailService
       .sendBanPresentationAlert({ to: recipients, presentation })
       .catch((error) => this.logger.error(`Ban presentation alert failed for ${presentation.eventCode}`, error instanceof Error ? error.stack : String(error)));
+  }
+
+  private dispatchTransactionEvent(type: TransactionEventType, transaction: TransactionDetail, createdAt?: Date): void {
+    try {
+      const listItem = toTransactionListItemFromDetail(transaction, createdAt);
+      this.transactionEventsService.publish({ type, data: listItem });
+    } catch (error) {
+      this.logger.error(
+        `Failed to dispatch ${type} event for ${transaction.eventCode}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
   // Single-file lane: open transactions form a FIFO queue. The truck currently under the

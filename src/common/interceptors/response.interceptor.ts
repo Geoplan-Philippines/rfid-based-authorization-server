@@ -11,6 +11,12 @@ const isPaginated = (value: unknown): value is PaginatedResponse<unknown> =>
 @Injectable()
 export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponse<T>> {
   intercept(context: ExecutionContext, next: CallHandler): Observable<ApiResponse<T>> {
+    // Never wrap Server-Sent Events streams. NestJS SseStream requires raw MessageEvent objects.
+    const isSse = Reflect.getMetadata('__sse__', context.getHandler());
+    if (isSse) {
+      return next.handle() as Observable<ApiResponse<T>>;
+    }
+
     return next.handle().pipe(
       map((data): ApiResponse<T> => {
         // Read inside map: the route's status (e.g. 201 for POST) is only applied

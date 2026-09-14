@@ -58,6 +58,7 @@ export interface TransactionListItem {
   id: string;
   eventCode: string;
   occurredAt: Date;
+  createdAt?: Date;
   result: GateEventResult;
   rfidTag: { epcId: string; status: RFIDTagStatus } | null;
   plateRead: string | null;
@@ -67,6 +68,13 @@ export interface TransactionListItem {
   driver: DriverSummary | null;
   // True while the barrier has not yet opened (transaction is still mid-pipeline).
   isOpen: boolean;
+}
+
+export type TransactionEventType = 'transaction.created' | 'transaction.updated';
+
+export interface TransactionEvent {
+  type: TransactionEventType;
+  data: TransactionListItem;
 }
 
 export type TransactionResultCounts = Record<GateEventResult, number>;

@@ -11,6 +11,7 @@ export function toTransactionListItem(event: GateEventListPayload): TransactionL
     id: event.id,
     eventCode: event.eventCode,
     occurredAt: event.occurredAt,
+    createdAt: event.createdAt,
     result: event.result,
     rfidTag: event.rfidTag ? { epcId: event.rfidTag.epcId, status: event.rfidTag.status } : null,
     plateRead: event.plateNumberRead,
@@ -20,6 +21,23 @@ export function toTransactionListItem(event: GateEventListPayload): TransactionL
     driver: event.driver ? { firstName: event.driver.firstName, lastName: event.driver.lastName } : null,
     // List include filters timeline to BARRIER_OPENED only, so any row means the barrier opened.
     isOpen: isTransactionOpen(event.timeline.length > 0),
+  };
+}
+
+export function toTransactionListItemFromDetail(detail: TransactionDetail, createdAt?: Date): TransactionListItem {
+  return {
+    id: detail.id,
+    eventCode: detail.eventCode,
+    occurredAt: detail.occurredAt,
+    createdAt: createdAt ?? detail.occurredAt,
+    result: detail.result,
+    rfidTag: detail.rfidTag ? { epcId: detail.rfidTag.epcId, status: detail.rfidTag.status } : null,
+    plateRead: detail.plateRead,
+    plateMismatch: detail.plateMismatch,
+    truck: detail.truck ? { plateNumber: detail.truck.plateNumber, model: detail.truck.model } : null,
+    truckInRegistry: detail.truckInRegistry,
+    driver: detail.driver ? { firstName: detail.driver.firstName, lastName: detail.driver.lastName } : null,
+    isOpen: detail.isOpen,
   };
 }
 
