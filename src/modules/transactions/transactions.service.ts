@@ -527,6 +527,9 @@ export class TransactionsService {
   private bannedEntityMessage(entityType: BanEntityType, name: string, state: BanState): string {
     const ban = describeBan(state);
     if (ban.banType === BAN_TYPE.permanent) return `${entityType.toLowerCase()} ${name} permanently banned`;
+    if (ban.bannedFrom && ban.bannedUntil) {
+      return `${entityType.toLowerCase()} ${name} banned from ${formatBanUntilDate(ban.bannedFrom)} to ${formatBanUntilDate(ban.bannedUntil)}`;
+    }
     return `${entityType.toLowerCase()} ${name} banned until ${ban.bannedUntil ? formatBanUntilDate(ban.bannedUntil) : 'date'}`;
   }
 
@@ -535,6 +538,7 @@ export class TransactionsService {
     return {
       entityType,
       banType: ban.banType,
+      bannedFrom: ban.bannedFrom ? formatBanUntilDate(ban.bannedFrom) : null,
       bannedUntil: ban.bannedUntil ? formatBanUntilDate(ban.bannedUntil) : null,
     };
   }

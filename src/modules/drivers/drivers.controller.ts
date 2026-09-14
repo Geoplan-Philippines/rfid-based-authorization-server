@@ -102,7 +102,7 @@ export class DriversController {
   }
 
   @Post(':id/ban')
-  @ApiOperation({ summary: 'Ban a driver permanently or until a date' })
+  @ApiOperation({ summary: 'Ban a driver permanently or for a timed window (from through to)' })
   @ApiBody({ type: BanEntityDTO })
   async banDriver(
     @Param('id', ParseUUIDPipe) id: string,

@@ -76,7 +76,7 @@ export class TrucksController {
   }
 
   @Post(':id/ban')
-  @ApiOperation({ summary: 'Ban a truck permanently or until a date' })
+  @ApiOperation({ summary: 'Ban a truck permanently or for a timed window (from through to)' })
   @ApiBody({ type: BanEntityDTO })
   async banTruck(
     @Param('id', ParseUUIDPipe) id: string,
