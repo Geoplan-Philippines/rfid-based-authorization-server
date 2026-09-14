@@ -90,6 +90,10 @@ export function toBanMetadata(state: BanState): {
 export function buildBanUpdateData(body: BanEntityDTO, at = new Date()): BanState {
   const isPermanent = body.permanent ?? body.isPermanent;
 
+  if (isPermanent === undefined) {
+    throw new BadRequestException('A ban must specify whether it is permanent or timed');
+  }
+
   if (isPermanent) {
     if (body.from || body.to || body.until) {
       throw new BadRequestException('A permanent ban cannot include from or to dates');
@@ -104,6 +108,9 @@ export function buildBanUpdateData(body: BanEntityDTO, at = new Date()): BanStat
   }
 
   const bannedUntil = parseCalendarDate(toStr);
+  // An explicitly-provided `from` date may be today or in the future, or in the past
+  // for retroactive incident logging and manual corrections.
+  // The ban end date (`to`) must still be today or later, and `from` must be on or before `to`.
   const bannedFrom = body.from ? parseCalendarDate(body.from) : startOfLocalDay(at);
 
   if (startOfLocalDay(bannedFrom).getTime() > startOfLocalDay(bannedUntil).getTime()) {

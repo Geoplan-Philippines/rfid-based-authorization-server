@@ -1,22 +1,29 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsOptional } from 'class-validator';
+import { IsBoolean, IsOptional, ValidateIf } from 'class-validator';
 
 import { IsCalendarDate } from 'src/common/validators/is-calendar-date.validator';
+
+function normalizeBoolean(value: unknown, fallback: unknown): unknown {
+  const raw = value !== undefined ? value : fallback;
+  if (raw === true || raw === 'true') return true;
+  if (raw === false || raw === 'false') return false;
+  return raw;
+}
+
+function normalizeCalendarDate(value: unknown, fallback?: unknown): unknown {
+  const raw = value !== undefined ? value : fallback;
+  return typeof raw === 'string' ? raw.trim() : raw;
+}
 
 export class BanEntityDTO {
   @ApiPropertyOptional({
     description: 'True for a permanent ban. False for a timed ban requiring from and to dates.',
     example: false,
   })
-  @IsOptional()
-  @Transform(({ value, obj }) => {
-    const raw = value !== undefined ? value : obj?.isPermanent;
-    if (raw === true || raw === 'true') return true;
-    if (raw === false || raw === 'false') return false;
-    return raw;
-  })
-  @IsBoolean()
+  @ValidateIf((o) => o.isPermanent === undefined)
+  @IsBoolean({ message: 'A ban must specify whether it is permanent or timed' })
+  @Transform(({ value, obj }) => normalizeBoolean(value, obj?.isPermanent))
   permanent?: boolean;
 
   @ApiPropertyOptional({
@@ -24,12 +31,7 @@ export class BanEntityDTO {
     example: false,
   })
   @IsOptional()
-  @Transform(({ value, obj }) => {
-    const raw = value !== undefined ? value : obj?.permanent;
-    if (raw === true || raw === 'true') return true;
-    if (raw === false || raw === 'false') return false;
-    return raw;
-  })
+  @Transform(({ value, obj }) => normalizeBoolean(value, obj?.permanent))
   @IsBoolean()
   isPermanent?: boolean;
 
@@ -38,7 +40,7 @@ export class BanEntityDTO {
     example: '2026-09-21',
   })
   @IsOptional()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ value }) => normalizeCalendarDate(value))
   @IsCalendarDate()
   from?: string;
 
@@ -47,10 +49,7 @@ export class BanEntityDTO {
     example: '2026-10-05',
   })
   @IsOptional()
-  @Transform(({ value, obj }) => {
-    const val = value !== undefined ? value : obj?.until;
-    return typeof val === 'string' ? val.trim() : val;
-  })
+  @Transform(({ value, obj }) => normalizeCalendarDate(value, obj?.until))
   @IsCalendarDate()
   to?: string;
 
@@ -59,10 +58,7 @@ export class BanEntityDTO {
     example: '2026-10-05',
   })
   @IsOptional()
-  @Transform(({ value, obj }) => {
-    const val = value !== undefined ? value : obj?.to;
-    return typeof val === 'string' ? val.trim() : val;
-  })
+  @Transform(({ value, obj }) => normalizeCalendarDate(value, obj?.to))
   @IsCalendarDate()
   until?: string;
 }
