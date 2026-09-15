@@ -19,6 +19,7 @@ import { AuthenticatedUser } from '../auth/types/auth.types';
 import { OpenTransaction, TransactionDetail, TransactionEventType, TransactionListResponse, TransactionResultCounts, openTransactionInclude, transactionDetailInclude, transactionListInclude } from './types/transactions.types';
 import { toTransactionDetail, toTransactionListItem, toTransactionListItemFromDetail } from './transactions.mapper';
 import { TransactionEventsService } from './transaction-events.service';
+import { BarrierService } from '../barrier/barrier.service';
 
 // --- Hardcoded fallbacks ----------------------------------------------------
 // Used only when a device/service omits an optional field (e.g. manual testing). Real devices
@@ -43,6 +44,7 @@ export class TransactionsService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly transactionEventsService: TransactionEventsService,
+    private readonly barrierService: BarrierService,
   ) {}
 
   async getAllTransactions(query: GetAllTransactionsQueryDTO): Promise<TransactionListResponse> {
@@ -89,8 +91,19 @@ export class TransactionsService {
     return this.transactionEventsService.stream(eventType);
   }
 
+  // Known Philippine Expressway / Toll tag prefixes (Autosweep: SMC / 534D43 / EE / ED / EC, Easytrip: EASY / 454153 / 77)
+  private readonly EXPRESSWAY_PREFIXES = ['534D43', '454153', 'EE', '77', 'ED', 'EC'];
+
+  private isExpresswayTag(epcId: string): boolean {
+    if (!epcId) return false;
+    const u = epcId.trim().toUpperCase();
+    return this.EXPRESSWAY_PREFIXES.some((prefix) => u.startsWith(prefix));
+  }
+
   // Stage 1 — RFID reader reports a tag read. Opens a new transaction and validates the tag.
   async recordRfidRead(body: RecordRfidReadDTO): Promise<TransactionDetail> {
+    const isExpressway = this.isExpresswayTag(body.epcId);
+
     const tag = await this.prisma.rFIDTag.findUnique({
       where: { epcId: body.epcId },
       include: { assignedTruck: true },
@@ -101,17 +114,59 @@ export class TransactionsService {
     const tagActive = tag?.status === RFIDTagStatus.ACTIVE;
     const truckBanned = isBanActive(truck);
     const canVerify = truck !== null && tagActive;
+    const rfidVerified = canVerify && !truckBanned;
 
-    // No plate/face yet: the result is provisional and recomputed as later stages report in.
-    const result = this.resolveGateEventResult({
-      rfidMatched,
-      tagActive,
-      truckBanned,
-      driverBanned: false,
-      plateMatched: null,
-      faceMatched: null,
-    });
     const occurredAt = new Date();
+    const barrierOpenedAt = addMilliseconds(occurredAt, 2);
+
+    // When RFID is validated (active tag on an unbanned truck), bypass subsequent stages and
+    // complete the transaction immediately with an automatic barrier opening.
+    const result = rfidVerified
+      ? GateEventResult.VERIFIED
+      : this.resolveGateEventResult({
+          rfidMatched,
+          tagActive,
+          truckBanned,
+          driverBanned: false,
+          plateMatched: null,
+          faceMatched: null,
+          isExpressway,
+        });
+
+    const timelineEntries: Prisma.GateTimelineEventCreateWithoutGateEventInput[] = [
+      { type: TimelineEventType.RFID_SCANNED, message: `EPC ${body.epcId}`, occurredAt },
+    ];
+
+    if (isExpressway) {
+      timelineEntries.push({
+        type: TimelineEventType.TAG_VALIDATED,
+        message: 'Expressway toll tag (Autosweep / Easytrip)',
+        occurredAt: addMilliseconds(occurredAt, 1),
+      });
+    } else if (canVerify) {
+      timelineEntries.push({
+        type: TimelineEventType.TAG_VALIDATED,
+        message: `bound to ${truck.plateNumber}`,
+        occurredAt: addMilliseconds(occurredAt, 1),
+      });
+    }
+
+    if (truck && truckBanned) {
+      timelineEntries.push({
+        type: TimelineEventType.BANNED_ENTITY_DETECTED,
+        message: this.bannedEntityMessage(BAN_ENTITY_TYPE.truck, truck.plateNumber, truck),
+        metadata: this.bannedEntityMetadata(BAN_ENTITY_TYPE.truck, truck),
+        occurredAt: addMilliseconds(occurredAt, 2),
+      });
+    }
+
+    if (rfidVerified) {
+      timelineEntries.push({
+        type: TimelineEventType.BARRIER_OPENED,
+        message: 'RFID-only policy',
+        occurredAt: barrierOpenedAt,
+      });
+    }
 
     const event = await this.prisma.gateEvent.create({
       data: {
@@ -120,23 +175,14 @@ export class TransactionsService {
         result,
         rfidTag: tag ? { connect: { id: tag.id } } : undefined,
         truck: truck ? { connect: { id: truck.id } } : undefined,
-        // Driver identity comes from the face stage; left empty until then.
-        verification: { create: { verifiedAt: occurredAt, rfidMatched } },
+        verification: {
+          create: {
+            verifiedAt: rfidVerified ? barrierOpenedAt : occurredAt,
+            rfidMatched,
+          },
+        },
         timeline: {
-          create: [
-            { type: TimelineEventType.RFID_SCANNED, message: `EPC ${body.epcId}`, occurredAt },
-            ...(canVerify
-              ? [{ type: TimelineEventType.TAG_VALIDATED, message: `bound to ${truck.plateNumber}`, occurredAt: addMilliseconds(occurredAt, 1) }]
-              : []),
-            ...(truck && truckBanned
-              ? [{
-                  type: TimelineEventType.BANNED_ENTITY_DETECTED,
-                  message: this.bannedEntityMessage(BAN_ENTITY_TYPE.truck, truck.plateNumber, truck),
-                  metadata: this.bannedEntityMetadata(BAN_ENTITY_TYPE.truck, truck),
-                  occurredAt: addMilliseconds(occurredAt, 2),
-                }]
-              : []),
-          ],
+          create: timelineEntries,
         },
       },
       include: transactionDetailInclude,
@@ -145,6 +191,14 @@ export class TransactionsService {
     const detail = toTransactionDetail(event);
     if (truck && truckBanned) this.dispatchBanPresentationAlert(this.toTruckBanPresentation(detail, truck));
     this.dispatchTransactionEvent('transaction.created', detail, event.createdAt);
+
+    if (rfidVerified) {
+      // Trigger physical barrier open relay asynchronously
+      this.barrierService.triggerBarrier('RFID auto-open').catch((err) => {
+        this.logger.error(`Barrier trigger failed: ${err.message}`);
+      });
+    }
+
     return detail;
   }
 
@@ -310,6 +364,11 @@ export class TransactionsService {
     // alerts reviewers once it closes. Banned presentations send their own ops email above and do
     // not auto-open, so they do not use this path.
     if (rfidVerified) this.dispatchTransactionAlert(detail);
+    if (rfidVerified) {
+      this.barrierService.triggerBarrier('Face stage auto-open').catch((err) => {
+        this.logger.error(`Barrier trigger failed: ${err.message}`);
+      });
+    }
     this.dispatchTransactionEvent('transaction.updated', detail);
     return detail;
   }
@@ -360,6 +419,11 @@ export class TransactionsService {
       }),
       this.prisma.eventVerification.update({ where: { gateEventId: event.id }, data: { verifiedAt: barrierOpenedAt } }),
     ]);
+
+    // Trigger physical barrier open relay
+    this.barrierService.triggerBarrier(isOverride ? (body.reason ?? 'manual override') : 'manual operator open').catch((err) => {
+      this.logger.error(`Barrier trigger failed: ${err.message}`);
+    });
 
     // The transaction is now complete (barrier opened). Alert reviewers if it closed on a
     // non-VERIFIED result — the email then reflects the final state, including any override.
@@ -511,8 +575,10 @@ export class TransactionsService {
     driverBanned: boolean;
     plateMatched: boolean | null;
     faceMatched: boolean | null;
+    isExpressway?: boolean;
   }): GateEventResult {
-    if (!input.rfidMatched) return GateEventResult.UNKNOWN_TAG;
+    if (input.isExpressway) return GateEventResult.EXPRESSWAY_TAG;
+    if (!input.rfidMatched) return GateEventResult.UNAUTHORIZED;
     if (input.truckBanned || input.driverBanned) return GateEventResult.BANNED;
     if (!input.tagActive) return GateEventResult.DENIED;
     if (input.plateMatched === false) return GateEventResult.PLATE_MISMATCH;

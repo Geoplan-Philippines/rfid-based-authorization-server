@@ -2,6 +2,8 @@ import { GateEventResult } from '@prisma/client';
 
 export const EXCEPTION_GATE_EVENT_RESULTS = [
   GateEventResult.UNKNOWN_TAG,
+  GateEventResult.UNAUTHORIZED,
+  GateEventResult.EXPRESSWAY_TAG,
   GateEventResult.FACE_MISMATCH,
   GateEventResult.PLATE_MISMATCH,
   GateEventResult.DENIED,

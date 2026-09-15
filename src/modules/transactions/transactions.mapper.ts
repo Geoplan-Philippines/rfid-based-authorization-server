@@ -6,21 +6,35 @@ import { isTransactionOpen } from './transactions.policy';
 // Pure response shapers: turn a Prisma payload into the display-ready shape the frontend consumes.
 // Kept out of the service so they stay free of DB/DI concerns and are trivially unit-testable.
 
+function extractScannedEpc(timeline?: Array<{ type: TimelineEventType; message: string | null }>): string | null {
+  if (!timeline) return null;
+  const scanEvent = timeline.find((e) => e.type === TimelineEventType.RFID_SCANNED);
+  if (!scanEvent || !scanEvent.message) return null;
+  const match = scanEvent.message.match(/^EPC\s+(.+)$/);
+  return match ? match[1].trim() : scanEvent.message.trim();
+}
+
 export function toTransactionListItem(event: GateEventListPayload): TransactionListItem {
+  const scannedEpc = extractScannedEpc(event.timeline);
+  const rfidTag = event.rfidTag
+    ? { epcId: event.rfidTag.epcId, status: event.rfidTag.status }
+    : scannedEpc
+      ? { epcId: scannedEpc, status: null }
+      : null;
+
   return {
     id: event.id,
     eventCode: event.eventCode,
     occurredAt: event.occurredAt,
     createdAt: event.createdAt,
     result: event.result,
-    rfidTag: event.rfidTag ? { epcId: event.rfidTag.epcId, status: event.rfidTag.status } : null,
+    rfidTag,
     plateRead: event.plateNumberRead,
     plateMismatch: isPlateMismatch(event.plateNumberRead, event.truck?.plateNumber),
     truck: event.truck ? { plateNumber: event.truck.plateNumber, model: event.truck.model } : null,
     truckInRegistry: event.truck !== null,
     driver: event.driver ? { firstName: event.driver.firstName, lastName: event.driver.lastName } : null,
-    // List include filters timeline to BARRIER_OPENED only, so any row means the barrier opened.
-    isOpen: isTransactionOpen(event.timeline.length > 0),
+    isOpen: isTransactionOpen(event.timeline.some((entry) => entry.type === TimelineEventType.BARRIER_OPENED)),
   };
 }
 
@@ -43,6 +57,12 @@ export function toTransactionListItemFromDetail(detail: TransactionDetail, creat
 
 export function toTransactionDetail(event: GateEventDetailPayload): TransactionDetail {
   const assignedDriver = event.truck?.driverAssignments[0]?.driver ?? null;
+  const scannedEpc = extractScannedEpc(event.timeline);
+  const rfidTag = event.rfidTag
+    ? { epcId: event.rfidTag.epcId, status: event.rfidTag.status, assignedTruckPlate: event.truck?.plateNumber ?? null }
+    : scannedEpc
+      ? { epcId: scannedEpc, status: null, assignedTruckPlate: null }
+      : null;
 
   return {
     id: event.id,
@@ -67,9 +87,7 @@ export function toTransactionDetail(event: GateEventDetailPayload): TransactionD
       metadata: entry.metadata,
       occurredAt: entry.occurredAt,
     })),
-    rfidTag: event.rfidTag
-      ? { epcId: event.rfidTag.epcId, status: event.rfidTag.status, assignedTruckPlate: event.truck?.plateNumber ?? null }
-      : null,
+    rfidTag,
     truck: event.truck
       ? {
           plateNumber: event.truck.plateNumber,

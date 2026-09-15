@@ -31,6 +31,16 @@ const schema = z.object({
     .default('')
     .transform((s) => s.split(',').map((e) => e.trim()).filter(Boolean)),
   OCR_SPACE_API_KEY: z.string().min(1),
+
+  BARRIER_CAMERA_HOST: z.string().default('192.168.10.235'),
+  BARRIER_CAMERA_PORT: z.coerce.number().int().default(80),
+  BARRIER_CAMERA_USER: z.string().default('admin'),
+  BARRIER_CAMERA_PASSWORD: z.string().default('admin123'),
+  BARRIER_TRIGGER_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  BARRIER_PULSE_DURATION_MS: z.coerce.number().int().default(800),
 });
 
 const parsed = schema.safeParse(process.env);

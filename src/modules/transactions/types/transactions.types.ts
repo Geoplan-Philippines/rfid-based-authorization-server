@@ -7,8 +7,11 @@ export const transactionListInclude = {
   rfidTag: true,
   truck: true,
   driver: true,
-  // Only the barrier-opened marker is needed to derive open/closed for the list (cheap: at most 1 row).
-  timeline: { where: { type: TimelineEventType.BARRIER_OPENED }, select: { id: true }, take: 1 },
+  // BARRIER_OPENED derives open/closed; RFID_SCANNED provides scanned EPC for unknown tags.
+  timeline: {
+    where: { type: { in: [TimelineEventType.BARRIER_OPENED, TimelineEventType.RFID_SCANNED] } },
+    select: { type: true, message: true },
+  },
 } satisfies Prisma.GateEventInclude;
 
 export const transactionDetailInclude = {
@@ -60,7 +63,7 @@ export interface TransactionListItem {
   occurredAt: Date;
   createdAt?: Date;
   result: GateEventResult;
-  rfidTag: { epcId: string; status: RFIDTagStatus } | null;
+  rfidTag: { epcId: string; status: RFIDTagStatus | null } | null;
   plateRead: string | null;
   plateMismatch: boolean;
   truck: { plateNumber: string; model: string | null } | null;
@@ -110,7 +113,7 @@ export interface TransactionDetail {
   plateMismatch: boolean;
   verification: TransactionVerification | null;
   timeline: TransactionTimelineEvent[];
-  rfidTag: { epcId: string; status: RFIDTagStatus; assignedTruckPlate: string | null } | null;
+  rfidTag: { epcId: string; status: RFIDTagStatus | null; assignedTruckPlate: string | null } | null;
   truck: { plateNumber: string; model: string | null; assignedDriver: DriverSummary | null } | null;
   truckInRegistry: boolean;
   driver: (DriverSummary & { id: string }) | null;

@@ -94,7 +94,7 @@ export interface ExceptionReportItem {
   result: ExceptionGateEventResult;
   reason: string;
   plateRead: string | null;
-  rfidTag: { epcId: string; status: RFIDTagStatus } | null;
+  rfidTag: { epcId: string; status: RFIDTagStatus | null } | null;
   truck: { id: string; plateNumber: string; model: string | null } | null;
   driver: { id: string; firstName: string; lastName: string } | null;
   verification: {

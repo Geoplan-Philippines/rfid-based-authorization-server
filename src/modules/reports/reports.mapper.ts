@@ -146,7 +146,20 @@ export function toExceptionReportItem(event: ExceptionReportGateEventPayload): E
     throw new Error(`Cannot map ${event.result} as an exception report item`);
   }
 
-  const barrierOpenedAt = event.timeline[0]?.occurredAt ?? null;
+  const barrierEntry = event.timeline.find((e) => e.type === TimelineEventType.BARRIER_OPENED);
+  const barrierOpenedAt = barrierEntry?.occurredAt ?? null;
+
+  const scanEvent = event.timeline.find((e) => e.type === TimelineEventType.RFID_SCANNED);
+  let scannedEpc: string | null = null;
+  if (scanEvent && scanEvent.message) {
+    const match = scanEvent.message.match(/^EPC\s+(.+)$/);
+    scannedEpc = match ? match[1].trim() : scanEvent.message.trim();
+  }
+  const rfidTag = event.rfidTag
+    ? event.rfidTag
+    : scannedEpc
+      ? { epcId: scannedEpc, status: null }
+      : null;
 
   return {
     id: event.id,
@@ -155,7 +168,7 @@ export function toExceptionReportItem(event: ExceptionReportGateEventPayload): E
     result: event.result,
     reason: getExceptionReason(event.result),
     plateRead: event.plateNumberRead,
-    rfidTag: event.rfidTag,
+    rfidTag,
     truck: event.truck,
     driver: event.driver,
     verification: event.verification,
@@ -216,7 +229,10 @@ function formatHourRange(hour: number): string {
 function getExceptionReason(result: GateEventResult): string {
   switch (result) {
     case GateEventResult.UNKNOWN_TAG:
-      return 'The RFID tag is not registered.';
+    case GateEventResult.UNAUTHORIZED:
+      return 'The RFID tag is unauthorized or not registered.';
+    case GateEventResult.EXPRESSWAY_TAG:
+      return 'Philippine expressway toll tag (Autosweep / Easytrip).';
     case GateEventResult.FACE_MISMATCH:
       return 'The recognised driver does not match the truck assignment.';
     case GateEventResult.PLATE_MISMATCH:

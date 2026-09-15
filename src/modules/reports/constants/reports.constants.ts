@@ -46,9 +46,8 @@ export const EXCEPTIONS_REPORT_GATE_EVENT_SELECT = {
     },
   },
   timeline: {
-    where: { type: TimelineEventType.BARRIER_OPENED },
+    where: { type: { in: [TimelineEventType.BARRIER_OPENED, TimelineEventType.RFID_SCANNED] } },
     orderBy: { occurredAt: 'desc' },
-    take: 1,
-    select: { occurredAt: true },
+    select: { type: true, message: true, occurredAt: true },
   },
 } satisfies Prisma.GateEventSelect;
