@@ -40,7 +40,7 @@ const schema = z.object({
     .string()
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
-  BARRIER_PULSE_DURATION_MS: z.coerce.number().int().default(800),
+  BARRIER_PULSE_DURATION_MS: z.coerce.number().int().default(3000),
 });
 
 const parsed = schema.safeParse(process.env);

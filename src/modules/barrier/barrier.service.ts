@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { env } from 'src/core/config/env.config';
 
@@ -11,17 +11,40 @@ interface DigestChallenge {
 }
 
 @Injectable()
-export class BarrierService {
+export class BarrierService implements OnModuleInit {
   private readonly logger = new Logger(BarrierService.name);
   private cachedChallenge: DigestChallenge | null = null;
   private nonceCount = 0;
 
   /**
+   * Pre-warm the Digest auth challenge cache on startup so the first barrier
+   * trigger doesn't incur a double round-trip (Basic → 401 → Digest retry).
+   */
+  async onModuleInit(): Promise<void> {
+    if (!env.BARRIER_TRIGGER_ENABLED) return;
+
+    try {
+      const host = env.BARRIER_CAMERA_HOST;
+      const port = env.BARRIER_CAMERA_PORT;
+      const baseUrl = `http://${host}:${port}`;
+      // A lightweight read-only request to obtain and cache the digest nonce
+      await this.executeAuthenticatedRequest(baseUrl, '/cgi-bin/configManager.cgi?action=getConfig&name=AlarmOut');
+      this.logger.log(`Digest auth pre-warmed for camera ${host}:${port}`);
+    } catch (err) {
+      this.logger.warn(`Failed to pre-warm digest auth (barrier will still work on first trigger): ${err}`);
+    }
+  }
+
+  /**
    * Triggers the Dahua barrier via the Dahua ANPR camera's ALARM_OUT relay.
    *
    * Physical connection:
-   *   Camera Brown (ALARM_OUT)     -> Dahua Barrier OPEN
-   *   Camera Green (ALARM_OUT_GND) -> Dahua Barrier GND
+   *   Camera Brown (ALARM_OUT)     -> Dahua Barrier OPEN (↑)
+   *   Camera Green (ALARM_OUT_GND) -> Dahua Barrier GND (GN)
+   *
+   * The barrier only needs a brief momentary pulse to trigger the open command.
+   * The relay release (Mode=2) is fired without awaiting to minimize the time
+   * the relay stays closed and the barrier stays in "open command" state.
    *
    * @param reason Description of what triggered the barrier (e.g. "RFID auto-open", "Manual override")
    */
@@ -45,13 +68,14 @@ export class BarrierService {
         return { success: false, message: `Could not activate alarm relay on camera ${host}` };
       }
 
-      // Step 2: Hold for pulse duration
-      await new Promise((resolve) => setTimeout(resolve, pulseMs));
+      // Step 2: Hold for pulse duration, then release without blocking
+      setTimeout(() => {
+        this.setAlarmOutState(false).catch((err) => {
+          this.logger.warn(`Failed to release barrier relay: ${err}`);
+        });
+      }, pulseMs);
 
-      // Step 3: Turn AlarmOut OFF (Close Alarm / Auto -> opens relay contacts)
-      await this.setAlarmOutState(false);
-
-      this.logger.log(`Barrier trigger pulse completed successfully [${reason}]`);
+      this.logger.log(`Barrier trigger pulse initiated successfully [${reason}]`);
       return { success: true, message: 'Barrier triggered successfully' };
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
