@@ -16,7 +16,9 @@ interface StepStyle {
  */
 export class TransactionAlertMapper {
   public static buildVariables(t: TransactionDetail): Record<string, string | number> {
-    const [rfidScanned, tagValidated] = t.timeline;
+    const rfidScanned = t.timeline.find((e) => e.type === TimelineEventType.RFID_SCANNED);
+    const tagValidated = t.timeline.find((e) => e.type === TimelineEventType.TAG_VALIDATED);
+    const barrierOpened = t.timeline.find((e) => e.type === TimelineEventType.BARRIER_OPENED);
     const rfid = TransactionAlertMapper.rfidStep(t);
     const tag = TransactionAlertMapper.tagStep(t);
     const plate = TransactionAlertMapper.plateStep(t.verification?.plateMatched ?? null);
@@ -24,16 +26,30 @@ export class TransactionAlertMapper {
     const override = TransactionAlertMapper.overrideStep(t);
     const barrier = TransactionAlertMapper.barrierStep(t);
 
+    const epc =
+      t.rfidTag?.epcId ??
+      (rfidScanned?.message ? rfidScanned.message.replace(/^EPC\s+/i, '').trim() : ALERT_FALLBACK);
+
+    const registeredPlate =
+      t.truck?.plateNumber ??
+      t.rfidTag?.assignedTruckPlate ??
+      'Unassigned';
+
     return {
       // Summary + raw data
       eventCode: t.eventCode,
       plateRead: t.plateRead ?? ALERT_FALLBACK,
       result: TransactionAlertMapper.resultLabel(t),
       occurredAt: TransactionAlertMapper.formatDateTime(t.occurredAt),
-      rfidScannedAt: rfidScanned ? TransactionAlertMapper.formatDateTime(rfidScanned.occurredAt) : ALERT_FALLBACK,
-      tagValidatedMessage: tagValidated?.message ?? ALERT_FALLBACK,
-      rfidEpcId: t.rfidTag?.epcId ?? ALERT_FALLBACK,
-      assignedTruckPlate: t.rfidTag?.assignedTruckPlate ?? ALERT_FALLBACK,
+      rfidScannedAt: rfidScanned ? TransactionAlertMapper.formatTime(rfidScanned.occurredAt) : ALERT_FALLBACK,
+      tagValidatedAt: tagValidated ? TransactionAlertMapper.formatTime(tagValidated.occurredAt) : (rfidScanned ? TransactionAlertMapper.formatTime(rfidScanned.occurredAt) : ALERT_FALLBACK),
+      tagValidatedMessage: tagValidated?.message ?? (t.result === GateEventResult.VERIFIED ? 'Valid' : 'Unauthorized / Unknown Tag'),
+      barrierOpenedAt: barrierOpened ? TransactionAlertMapper.formatTime(barrierOpened.occurredAt) : ALERT_FALLBACK,
+      rfidEpcId: epc,
+      rfidTag: epc,
+      assignedTruckPlate: registeredPlate,
+      registeredPlate: registeredPlate,
+      plateNumber: registeredPlate,
       truckModel: t.truck?.model ?? ALERT_FALLBACK,
       registeredDriverFirstName: TransactionAlertMapper.firstName(t.truck?.assignedDriver),
       registeredDriverLastName: TransactionAlertMapper.lastName(t.truck?.assignedDriver),
@@ -48,6 +64,7 @@ export class TransactionAlertMapper {
       rfidStatusIcon: rfid.icon,
       tagStatusColor: tag.color,
       tagStatusIcon: tag.icon,
+      tagStatusTextColor: tag.color,
       plateStatusColor: plate.color,
       plateStatusIcon: plate.icon,
       plateStatusLabel: plate.label,
@@ -200,6 +217,17 @@ export class TransactionAlertMapper {
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
+      hour12: true,
+    });
+  }
+
+  private static formatTime(value: Date | string): string {
+    const date = value instanceof Date ? value : new Date(value);
+    return date.toLocaleString('en-PH', {
+      timeZone: 'Asia/Manila',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
       hour12: true,
     });
   }

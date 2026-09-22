@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, MessageEvent, NotFoundException } from '@nestjs/common';
 import { GateEventResult, Prisma, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
-import { addMilliseconds } from 'date-fns';
+import { addMilliseconds, subSeconds } from 'date-fns';
 import { nanoid } from 'nanoid';
 import { Observable } from 'rxjs';
 
@@ -92,7 +92,7 @@ export class TransactionsService {
   }
 
   // Known Philippine Expressway / Toll tag prefixes (Autosweep: SMC / 534D43 / EE / ED / EC, Easytrip: EASY / 454153 / 77)
-  private readonly EXPRESSWAY_PREFIXES = ['534D43', '454153', 'EE', '77', 'ED', 'EC'];
+  private readonly EXPRESSWAY_PREFIXES = ['534D43', '454153', 'EE', '77', 'ED', 'EC', 'SMC', 'EASY'];
 
   private isExpresswayTag(epcId: string): boolean {
     if (!epcId) return false;
@@ -119,6 +119,24 @@ export class TransactionsService {
     const occurredAt = new Date();
     const barrierOpenedAt = addMilliseconds(occurredAt, 2);
 
+    let expresswayBypass = false;
+    if (isExpressway) {
+      // The expressway tag bypass only triggers the open barrier if there is no verified tag read
+      // (and no active ban) in the recent 10-second window.
+      const recentGateEvent = await this.prisma.gateEvent.findFirst({
+        where: {
+          occurredAt: { gte: subSeconds(occurredAt, 10) },
+          result: { in: [GateEventResult.VERIFIED, GateEventResult.BANNED] },
+        },
+        orderBy: { occurredAt: 'desc' },
+      });
+
+      const hasRecentVerified = recentGateEvent?.result === GateEventResult.VERIFIED;
+      const hasRecentBanned = recentGateEvent?.result === GateEventResult.BANNED;
+
+      expresswayBypass = !hasRecentVerified && !hasRecentBanned;
+    }
+
     // When RFID is validated (active tag on an unbanned truck), bypass subsequent stages and
     // complete the transaction immediately with an automatic barrier opening.
     const result = rfidVerified
@@ -143,6 +161,14 @@ export class TransactionsService {
         message: 'Expressway toll tag (Autosweep / Easytrip)',
         occurredAt: addMilliseconds(occurredAt, 1),
       });
+
+      if (expresswayBypass) {
+        timelineEntries.push({
+          type: TimelineEventType.BARRIER_OPENED,
+          message: 'Expressway bypass',
+          occurredAt: barrierOpenedAt,
+        });
+      }
     } else if (canVerify) {
       timelineEntries.push({
         type: TimelineEventType.TAG_VALIDATED,
@@ -177,7 +203,7 @@ export class TransactionsService {
         truck: truck ? { connect: { id: truck.id } } : undefined,
         verification: {
           create: {
-            verifiedAt: rfidVerified ? barrierOpenedAt : occurredAt,
+            verifiedAt: rfidVerified || expresswayBypass ? barrierOpenedAt : occurredAt,
             rfidMatched,
           },
         },
@@ -197,6 +223,32 @@ export class TransactionsService {
       this.barrierService.triggerBarrier('RFID auto-open').catch((err) => {
         this.logger.error(`Barrier trigger failed: ${err.message}`);
       });
+    } else if (expresswayBypass) {
+      // Trigger physical barrier open relay for expressway bypass
+      this.barrierService.triggerBarrier('Expressway bypass').catch((err) => {
+        this.logger.error(`Barrier trigger failed: ${err.message}`);
+      });
+
+      // If an open transaction was awaiting at the gate, close it since the barrier is now opened
+      const openTx = await this.prisma.gateEvent.findFirst({
+        where: {
+          result: { not: GateEventResult.EXPRESSWAY_TAG },
+          timeline: { none: { type: TimelineEventType.BARRIER_OPENED } },
+        },
+        orderBy: { occurredAt: 'asc' },
+      });
+      if (openTx) {
+        await this.prisma.gateTimelineEvent.create({
+          data: {
+            gateEventId: openTx.id,
+            type: TimelineEventType.BARRIER_OPENED,
+            message: 'Expressway bypass',
+            occurredAt: barrierOpenedAt,
+          },
+        });
+        const updatedDetail = await this.getTransactionById(openTx.id);
+        this.dispatchTransactionEvent('transaction.updated', updatedDetail);
+      }
     }
 
     return detail;
