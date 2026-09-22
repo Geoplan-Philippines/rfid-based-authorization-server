@@ -215,7 +215,11 @@ export class TransactionsService {
     });
 
     const detail = toTransactionDetail(event);
-    if (truck && truckBanned) this.dispatchBanPresentationAlert(this.toTruckBanPresentation(detail, truck));
+    if (truck && truckBanned) {
+      this.dispatchBanPresentationAlert(this.toTruckBanPresentation(detail, truck));
+    } else if (!rfidVerified && !expresswayBypass) {
+      this.dispatchTransactionAlert(detail);
+    }
     this.dispatchTransactionEvent('transaction.created', detail, event.createdAt);
 
     if (rfidVerified) {
