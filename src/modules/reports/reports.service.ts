@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { addDays, addMonths, differenceInCalendarDays, eachDayOfInterval, format, parseISO, startOfDay, startOfMonth } from 'date-fns';
-import { TimelineEventType } from '@prisma/client';
+import { GateEventResult, TimelineEventType } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 
 import { EXCEPTION_GATE_EVENT_RESULTS } from 'src/common/gate-events/gate-event.constants';
@@ -77,6 +77,7 @@ export class ReportsService {
     const openCountWhere: Prisma.GateEventWhereInput = {
       AND: [
         countsWhere,
+        { result: { not: GateEventResult.EXPRESSWAY_TAG } },
         { timeline: { none: { type: TimelineEventType.BARRIER_OPENED } } },
       ],
     };

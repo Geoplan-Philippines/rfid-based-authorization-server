@@ -37,7 +37,11 @@ export function buildReportSummary(
     verified,
     exceptions,
     manualOverrides: resultCounts[GateEventResult.MANUAL_OVERRIDE],
-    openEvents: events.filter((event) => !findTimelineTime(event, TimelineEventType.BARRIER_OPENED)).length,
+    openEvents: events.filter(
+      (event) =>
+        event.result !== GateEventResult.EXPRESSWAY_TAG &&
+        !findTimelineTime(event, TimelineEventType.BARRIER_OPENED),
+    ).length,
     verificationRate: calculatePercentage(verified, totalGateEvents),
     avgPassTime: calculateAveragePassTime(events),
     resultCounts,
@@ -173,7 +177,7 @@ export function toExceptionReportItem(event: ExceptionReportGateEventPayload): E
     driver: event.driver,
     verification: event.verification,
     barrierOpenedAt,
-    isOpen: barrierOpenedAt === null,
+    isOpen: event.result === GateEventResult.EXPRESSWAY_TAG ? false : barrierOpenedAt === null,
   };
 }
 

@@ -537,6 +537,7 @@ export class TransactionsService {
   private async findOpenTransaction(): Promise<OpenTransaction> {
     const event = await this.prisma.gateEvent.findFirst({
       where: {
+        result: { not: GateEventResult.EXPRESSWAY_TAG },
         timeline: { none: { type: TimelineEventType.BARRIER_OPENED } },
       },
       orderBy: { occurredAt: 'asc' },

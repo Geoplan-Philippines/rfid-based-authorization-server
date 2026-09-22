@@ -34,7 +34,10 @@ export function toTransactionListItem(event: GateEventListPayload): TransactionL
     truck: event.truck ? { plateNumber: event.truck.plateNumber, model: event.truck.model } : null,
     truckInRegistry: event.truck !== null,
     driver: event.driver ? { firstName: event.driver.firstName, lastName: event.driver.lastName } : null,
-    isOpen: isTransactionOpen(event.timeline.some((entry) => entry.type === TimelineEventType.BARRIER_OPENED)),
+    isOpen: isTransactionOpen(
+      event.timeline.some((entry) => entry.type === TimelineEventType.BARRIER_OPENED),
+      event.result,
+    ),
   };
 }
 
@@ -100,7 +103,10 @@ export function toTransactionDetail(event: GateEventDetailPayload): TransactionD
     // Meaningful only after the face stage has run; before that the event has no recognised driver.
     faceMatchesAssigned: assignedDriver !== null && event.driverId === assignedDriver.id,
     snapshots: event.snapshots.map((snapshot) => ({ id: snapshot.id, type: snapshot.type, imageUrl: snapshot.imageUrl })),
-    isOpen: isTransactionOpen(event.timeline.some((entry) => entry.type === TimelineEventType.BARRIER_OPENED)),
+    isOpen: isTransactionOpen(
+      event.timeline.some((entry) => entry.type === TimelineEventType.BARRIER_OPENED),
+      event.result,
+    ),
   };
 }
 
