@@ -77,6 +77,7 @@ model Truck {
   rfidTag                       RFIDTag?
   driverAssignments             TruckDriverAssignment[]
   gateEvents                    GateEvent[]
+  expresswayTags                ExpresswayTag[]
 
   @@map("trucks")
 }
@@ -132,6 +133,41 @@ model RFIDTagStatusHistory {
 
   @@index([rfidTagId])
   @@map("rfid_tag_status_history")
+}
+
+model ExpresswayTag {
+  id                            String                    @id @default(uuid())
+  epcId                         String                    @unique @map("epc_id")
+  label                         String?
+  status                        ExpresswayTagStatus       @default(ACTIVE)
+
+  truckId                       String?                   @map("truck_id")
+  truck                         Truck?                    @relation(fields: [truckId], references: [id])
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  statusHistory                 ExpresswayTagStatusHistory[]
+
+  @@index([truckId])
+  @@map("expressway_tags")
+}
+
+model ExpresswayTagStatusHistory {
+  id                            String                    @id @default(uuid())
+  fromStatus                    ExpresswayTagStatus?      @map("from_status")
+  toStatus                      ExpresswayTagStatus       @map("to_status")
+  reason                        String?
+  changedById                   String?                   @map("changed_by_id")
+
+  expresswayTagId               String                    @map("expressway_tag_id")
+  expresswayTag                 ExpresswayTag             @relation(fields: [expresswayTagId], references: [id], onDelete: Cascade)
+
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  @@index([expresswayTagId])
+  @@map("expressway_tag_status_history")
 }
 
 model AuditLog {
@@ -238,6 +274,12 @@ enum Role {
   OPERATOR
 }
 
+enum ExpresswayTagStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
 enum RFIDTagStatus {
   ACTIVE
   INACTIVE
@@ -274,6 +316,7 @@ enum SnapshotType {
   FACE
   PLATE
   WIDE
+  EXPRESSWAY
 }
 
 enum TimelineEventType {
@@ -286,4 +329,5 @@ enum TimelineEventType {
   BARRIER_OPENED
   MANUAL_OVERRIDE
   BANNED_ENTITY_DETECTED
+  SNAPSHOT_CAPTURED
 }

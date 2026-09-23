@@ -1,4 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { env } from '../../core/config/env.config';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { WhepOfferDto } from './dto/whep-offer.dto';
 
 export interface CCTVStreamMetadata {
@@ -12,7 +15,7 @@ export interface CCTVStreamMetadata {
 @Injectable()
 export class CctvService {
   private readonly logger = new Logger(CctvService.name);
-  private readonly go2rtcUrl = process.env.GO2RTC_API_URL || 'http://127.0.0.1:1984';
+  private readonly go2rtcUrl = env.GO2RTC_API_URL;
 
   async getStreams(): Promise<CCTVStreamMetadata[]> {
     let isOnline = false;
@@ -78,6 +81,31 @@ export class CctvService {
       }
       this.logger.error(`Error connecting to go2rtc WHEP endpoint: ${err}`);
       throw new ServiceUnavailableException('CCTV streaming service is currently offline or unreachable');
+    }
+  }
+
+  async captureSnapshot(streamId: string, gateEventId: string): Promise<string | null> {
+    try {
+      const url = `${this.go2rtcUrl}/api/frame.jpeg?src=${streamId}`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        this.logger.error(`Failed to capture snapshot: ${response.statusText}`);
+        return null;
+      }
+      
+      const buffer = await response.arrayBuffer();
+      const filename = `${gateEventId}-${Date.now()}.jpg`;
+      const dirPath = join(process.cwd(), 'uploads', 'snapshot', 'plate');
+      const filePath = join(dirPath, filename);
+      
+      await mkdir(dirPath, { recursive: true });
+      await writeFile(filePath, Buffer.from(buffer));
+      
+      return `/uploads/snapshot/plate/${filename}`;
+    } catch (error) {
+      this.logger.error(`Error capturing snapshot from stream ${streamId}`, error);
+      return null;
     }
   }
 }

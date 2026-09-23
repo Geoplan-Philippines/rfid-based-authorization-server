@@ -37,6 +37,7 @@ const schema = z.object({
   BARRIER_CAMERA_PORT: z.coerce.number().int().default(80),
   BARRIER_CAMERA_USER: z.string().default('admin'),
   BARRIER_CAMERA_PASSWORD: z.string().default('admin123'),
+  GO2RTC_API_URL: z.string().default('http://127.0.0.1:1984'),
   BARRIER_TRIGGER_ENABLED: z
     .string()
     .default('true')

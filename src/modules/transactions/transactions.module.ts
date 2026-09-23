@@ -6,9 +6,10 @@ import { TransactionEventsService } from './transaction-events.service';
 import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { EmailModule } from '../email/email.module';
 import { BarrierModule } from '../barrier/barrier.module';
+import { CctvModule } from '../cctv/cctv.module';
 
 @Module({
-  imports: [ApiKeysModule, EmailModule, BarrierModule],
+  imports: [ApiKeysModule, EmailModule, BarrierModule, CctvModule],
   controllers: [TransactionsController],
   providers: [TransactionsService, TransactionEventsService],
   exports: [TransactionsService, TransactionEventsService],

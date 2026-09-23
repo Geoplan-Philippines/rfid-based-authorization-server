@@ -20,6 +20,7 @@ import { OpenTransaction, TransactionDetail, TransactionEventType, TransactionLi
 import { toTransactionDetail, toTransactionListItem, toTransactionListItemFromDetail } from './transactions.mapper';
 import { TransactionEventsService } from './transaction-events.service';
 import { BarrierService } from '../barrier/barrier.service';
+import { CctvService } from '../cctv/cctv.service';
 
 // --- Hardcoded fallbacks ----------------------------------------------------
 // Used only when a device/service omits an optional field (e.g. manual testing). Real devices
@@ -45,6 +46,7 @@ export class TransactionsService {
     private readonly emailService: EmailService,
     private readonly transactionEventsService: TransactionEventsService,
     private readonly barrierService: BarrierService,
+    private readonly cctvService: CctvService,
   ) {}
 
   async getAllTransactions(query: GetAllTransactionsQueryDTO): Promise<TransactionListResponse> {
@@ -102,14 +104,18 @@ export class TransactionsService {
 
   // Stage 1 — RFID reader reports a tag read. Opens a new transaction and validates the tag.
   async recordRfidRead(body: RecordRfidReadDTO): Promise<TransactionDetail> {
-    const isExpressway = this.isExpresswayTag(body.epcId);
+    const expresswayTag = await this.prisma.expresswayTag.findUnique({
+      where: { epcId: body.epcId },
+      include: { truck: true },
+    });
+    const isExpressway = this.isExpresswayTag(body.epcId) || expresswayTag !== null;
 
     const tag = await this.prisma.rFIDTag.findUnique({
       where: { epcId: body.epcId },
       include: { assignedTruck: true },
     });
 
-    const truck = tag?.assignedTruck ?? null;
+    const truck = expresswayTag?.truck ?? tag?.assignedTruck ?? null;
     const rfidMatched = tag !== null;
     const tagActive = tag?.status === RFIDTagStatus.ACTIVE;
     const truckBanned = isBanActive(truck);
@@ -231,6 +237,9 @@ export class TransactionsService {
       this.dispatchTransactionAlert(detail);
     }
     this.dispatchTransactionEvent('transaction.created', detail, event.createdAt);
+
+    // Capture plate camera snapshot for all tag reads (company tags, expressway tags, unauthorized, verified, etc.)
+    this.dispatchGateSnapshot(event.id);
 
     if (rfidVerified) {
       // Trigger physical barrier open relay asynchronously
@@ -595,6 +604,29 @@ export class TransactionsService {
         error instanceof Error ? error.stack : String(error),
       );
     }
+  }
+
+  private dispatchGateSnapshot(gateEventId: string): void {
+    void (async () => {
+      try {
+        const imageUrl = await this.cctvService.captureSnapshot('gate_plate', gateEventId);
+        if (imageUrl) {
+          await this.prisma.gateSnapshot.create({
+            data: { gateEventId, type: SnapshotType.PLATE, imageUrl },
+          });
+          this.logger.log(`Gate snapshot saved for ${gateEventId} (PLATE): ${imageUrl}`);
+
+          try {
+            const updatedDetail = await this.getTransactionById(gateEventId);
+            this.dispatchTransactionEvent('transaction.updated', updatedDetail);
+          } catch {
+            // Ignore if detail lookup or dispatch fails
+          }
+        }
+      } catch (err) {
+        this.logger.error(`Gate snapshot failed for ${gateEventId}`, err instanceof Error ? err.stack : String(err));
+      }
+    })();
   }
 
   // Single-file lane: open transactions form a FIFO queue. The truck currently under the
