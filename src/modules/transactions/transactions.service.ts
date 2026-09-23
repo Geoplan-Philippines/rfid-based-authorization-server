@@ -121,20 +121,30 @@ export class TransactionsService {
 
     let expresswayBypass = false;
     if (isExpressway) {
-      // The expressway tag bypass only triggers the open barrier if there is no verified tag read
-      // (and no active ban) in the recent 10-second window.
-      const recentGateEvent = await this.prisma.gateEvent.findFirst({
-        where: {
-          occurredAt: { gte: subSeconds(occurredAt, 10) },
-          result: { in: [GateEventResult.VERIFIED, GateEventResult.BANNED] },
-        },
-        orderBy: { occurredAt: 'desc' },
-      });
+      // The expressway tag bypass only triggers the open barrier if there is no verified tag read,
+      // no active ban, and no recent barrier open event in the recent 10-second window.
+      const [recentGateEvent, recentBarrierOpen] = await Promise.all([
+        this.prisma.gateEvent.findFirst({
+          where: {
+            occurredAt: { gte: subSeconds(occurredAt, 10) },
+            result: { in: [GateEventResult.VERIFIED, GateEventResult.BANNED] },
+          },
+          orderBy: { occurredAt: 'desc' },
+        }),
+        this.prisma.gateTimelineEvent.findFirst({
+          where: {
+            type: TimelineEventType.BARRIER_OPENED,
+            occurredAt: { gte: subSeconds(occurredAt, 10) },
+          },
+          orderBy: { occurredAt: 'desc' },
+        }),
+      ]);
 
       const hasRecentVerified = recentGateEvent?.result === GateEventResult.VERIFIED;
       const hasRecentBanned = recentGateEvent?.result === GateEventResult.BANNED;
+      const hasRecentBarrierOpen = recentBarrierOpen !== null;
 
-      expresswayBypass = !hasRecentVerified && !hasRecentBanned;
+      expresswayBypass = !hasRecentVerified && !hasRecentBanned && !hasRecentBarrierOpen;
     }
 
     // When RFID is validated (active tag on an unbanned truck), bypass subsequent stages and
@@ -217,7 +227,7 @@ export class TransactionsService {
     const detail = toTransactionDetail(event);
     if (truck && truckBanned) {
       this.dispatchBanPresentationAlert(this.toTruckBanPresentation(detail, truck));
-    } else if (!rfidVerified && !expresswayBypass) {
+    } else if (!rfidVerified && !isExpressway) {
       this.dispatchTransactionAlert(detail);
     }
     this.dispatchTransactionEvent('transaction.created', detail, event.createdAt);
@@ -543,7 +553,12 @@ export class TransactionsService {
   // Fire-and-forget alert email. Email is a side effect of completing the transaction, so a Resend
   // failure (or no configured recipients) must never fail the request — errors are logged instead.
   private dispatchTransactionAlert(transaction: TransactionDetail): void {
-    if (transaction.result === GateEventResult.VERIFIED) return;
+    if (
+      transaction.result === GateEventResult.VERIFIED ||
+      transaction.result === GateEventResult.EXPRESSWAY_TAG
+    ) {
+      return;
+    }
 
     const recipients = env.TRANSACTION_ALERT_RECIPIENTS;
     if (recipients.length === 0) {

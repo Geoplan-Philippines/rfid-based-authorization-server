@@ -24,6 +24,7 @@ const schema = z.object({
     ),
   RESEND_VERIFY_TEMPLATE_ID: z.string().min(1).optional(),
   RESEND_EAGLE_CEMENT_TEMPLATE_ID: z.string().min(1),
+  RESEND_BAN_ALERT_TEMPLATE_ID: z.string().default('banned-truck-alert'),
   // Comma-separated reviewer addresses that receive the auto-sent alert when a transaction
   // finishes with a non-VERIFIED result. Empty means auto-alerting is disabled.
   TRANSACTION_ALERT_RECIPIENTS: z

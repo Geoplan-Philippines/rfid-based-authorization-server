@@ -3,6 +3,30 @@ import { formatBanDate } from 'src/common/bans/ban.utils';
 import type { BanPresentationAlert } from '../dto/send-ban-presentation-alert.dto';
 
 export class BanPresentationAlertMapper {
+  public static buildVariables(presentation: BanPresentationAlert): Record<string, string | number> {
+    const when = BanPresentationAlertMapper.formatDateTime(presentation.occurredAt);
+    const banType = BanPresentationAlertMapper.banTypeLabel(presentation);
+    const bannedFrom = presentation.bannedFrom ? formatBanDate(presentation.bannedFrom) : 'N/A';
+    const bannedUntil =
+      presentation.banType === BAN_TYPE.permanent
+        ? 'Permanent'
+        : presentation.bannedUntil
+          ? formatBanDate(presentation.bannedUntil)
+          : 'Indefinite';
+
+    return {
+      eventCode: presentation.eventCode,
+      occurredAt: when,
+      entityType: presentation.entityType,
+      subjectName: presentation.subjectName,
+      plateNumber: presentation.subjectName,
+      identifier: presentation.identifier,
+      banType,
+      bannedFrom,
+      bannedUntil,
+      preheaderText: `SECURITY ALERT: Banned ${presentation.entityType} ${presentation.subjectName} attempted entry at the gate (Event ${presentation.eventCode}). Barrier remained locked.`,
+    };
+  }
   public static buildEmail(presentation: BanPresentationAlert): { subject: string; html: string } {
     const who = BanPresentationAlertMapper.whoLabel(presentation);
     const when = BanPresentationAlertMapper.formatDateTime(presentation.occurredAt);

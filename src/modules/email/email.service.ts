@@ -43,8 +43,11 @@ export class EmailService {
   async sendTransactionAlert(dto: SendTransactionAlertDto) {
     const { to, transaction } = dto;
 
-    if (transaction.result === GateEventResult.VERIFIED) {
-      return { skipped: true, message: 'Transaction is verified; no alert sent' };
+    if (
+      transaction.result === GateEventResult.VERIFIED ||
+      transaction.result === GateEventResult.EXPRESSWAY_TAG
+    ) {
+      return { skipped: true, message: 'Transaction is verified or expressway tag; no alert sent' };
     }
 
     const { data, error } = await this.resend.emails.send({
@@ -66,13 +69,14 @@ export class EmailService {
 
   async sendBanPresentationAlert(dto: SendBanPresentationAlertDto) {
     const { to, presentation } = dto;
-    const { subject, html } = BanPresentationAlertMapper.buildEmail(presentation);
 
     const { data, error } = await this.resend.emails.send({
       from: env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
       to,
-      subject,
-      html,
+      template: {
+        id: env.RESEND_BAN_ALERT_TEMPLATE_ID,
+        variables: BanPresentationAlertMapper.buildVariables(presentation),
+      },
     });
 
     if (error) {
