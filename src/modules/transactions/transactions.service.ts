@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, MessageEvent, NotFoundException } from '@nestjs/common';
 import { GateEventResult, Prisma, RFIDTagStatus, SnapshotType, TimelineEventType } from '@prisma/client';
-import { addMilliseconds, subSeconds } from 'date-fns';
+import { addMilliseconds, endOfDay, parseISO, startOfDay, subSeconds } from 'date-fns';
 import { nanoid } from 'nanoid';
 import { Observable } from 'rxjs';
 
@@ -535,6 +535,17 @@ export class TransactionsService {
 
     if (includeResult && query.result) {
       filters.push({ result: query.result });
+    }
+
+    if (query.from || query.to) {
+      const occurredAtFilter: Prisma.DateTimeFilter = {};
+      if (query.from) {
+        occurredAtFilter.gte = startOfDay(parseISO(query.from));
+      }
+      if (query.to) {
+        occurredAtFilter.lte = endOfDay(parseISO(query.to));
+      }
+      filters.push({ occurredAt: occurredAtFilter });
     }
 
     return filters.length > 0 ? { AND: filters } : {};
