@@ -24,6 +24,7 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { CctvModule } from './modules/cctv/cctv.module';
 import { BarrierModule } from './modules/barrier/barrier.module';
+import { ExpresswayTagsModule } from './modules/expressway-tags/expressway-tags.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { BarrierModule } from './modules/barrier/barrier.module';
     ApiKeysModule,
     CctvModule,
     BarrierModule,
+    ExpresswayTagsModule,
   ],
   controllers: [AppController],
   providers: [
